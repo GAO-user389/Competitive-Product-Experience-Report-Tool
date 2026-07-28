@@ -1,0 +1,60 @@
+{
+  "reports": [
+    {
+      "id": "report-notion-ai",
+      "productName": "Notion AI",
+      "category": "AI 文档 / 协作",
+      "website": "https://www.notion.com/product/ai",
+      "audience": "知识工作者、内容团队、项目协作团队",
+      "apiSupport": "部分支持",
+      "details": "Notion AI 将写作、问答、总结和数据库能力嵌入到文档工作流中。核心体验不是单独的聊天窗口，而是在用户已有信息结构里补充智能能力。",
+      "videos": "可补充：官方产品演示、YouTube 上的 Notion AI workflow 案例。",
+      "videoUploads": [],
+      "interactionText": "1. 打开工作区\n2. 进入已有文档或数据库\n3. 选中文本或点击 AI 按钮\n4. 输入改写、总结或生成指令\n5. 预览 AI 输出\n6. 插入到当前页面\n7. 持续编辑和协作",
+      "flowStyle": "vertical",
+      "nodeShape": "rounded",
+      "pros": "AI 能力贴近真实文档场景；学习成本低；信息组织与生成动作衔接自然。",
+      "cons": "深度自动化能力有限；复杂任务依然需要用户拆解；结果质量依赖文档上下文。",
+      "differences": "我方如果偏流程化报告，可比 Notion 更聚焦“竞品体验 -> 结构化沉淀 -> 团队复用”。",
+      "inspirations": "把 AI 嵌入具体字段和流程节点，不让用户跳出当前任务；提供可复用报告模板。",
+      "summary": "Notion AI 的价值来自场景嵌入。对我方启发是减少空白输入，把 AI 输出固定到报告字段和研究流程里。",
+      "evidence": [
+        {
+          "id": "evidence-notion-ai-001",
+          "type": "官网信息",
+          "title": "AI 能力嵌入文档工作流",
+          "url": "https://www.notion.com/product/ai",
+          "notes": "官网展示的核心入口集中在文档、数据库和知识问答场景，可作为“场景嵌入强”的依据。"
+        }
+      ]
+    },
+    {
+      "id": "report-figma",
+      "productName": "Figma",
+      "category": "设计协作",
+      "website": "https://www.figma.com/",
+      "audience": "产品经理、设计师、研发协作团队",
+      "apiSupport": "支持",
+      "details": "Figma 的竞品体验重点在多人协作、设计资产管理、原型演示和开发交付。它把设计文件变成团队持续沟通的工作空间。",
+      "videos": "",
+      "videoUploads": [],
+      "interactionText": "进入团队空间\n选择设计文件\n查看页面结构\n评论关键区域\n切换原型模式\n播放交互路径\n交付给研发",
+      "flowStyle": "horizontal",
+      "nodeShape": "rounded",
+      "pros": "协作实时；设计与原型一体化；插件生态丰富；跨角色交付顺畅。",
+      "cons": "大型文件性能会波动；非设计角色初次进入容易迷路；高级能力分散在多个面板。",
+      "differences": "我方工具更偏研究报告生产，而不是设计生产。差异点应放在信息结构、证据沉淀和决策启发。",
+      "inspirations": "报告工具可以学习它的评论、版本、组件化模板和可视化路径呈现。",
+      "summary": "Figma 的强项是把复杂协作放在一个可视化工作台中。竞品报告工具也应该让多人围绕同一份证据和结论协作。",
+      "evidence": [
+        {
+          "id": "evidence-figma-001",
+          "type": "体验记录",
+          "title": "原型播放与评论路径",
+          "url": "",
+          "notes": "体验中可以从设计文件切换到原型模式，再围绕具体界面节点评论，适合作为协作流程参考。"
+        }
+      ]
+    }
+  ]
+}

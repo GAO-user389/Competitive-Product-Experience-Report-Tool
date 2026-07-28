@@ -1,0 +1,270 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>竞品体验报告工具</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="竞品选择">
+        <div class="brand-block">
+          <div class="brand-mark">CR</div>
+          <div>
+            <h1>竞品体验报告</h1>
+          </div>
+        </div>
+
+        <section class="competitor-panel">
+          <div class="section-title">
+            <span>竞品选择</span>
+            <button class="icon-button" id="addCompetitorBtn" type="button" title="新增竞品" aria-label="新增竞品">+</button>
+          </div>
+          <div class="search-box">
+            <input id="competitorSearch" type="search" placeholder="搜索竞品或行业" autocomplete="off" />
+          </div>
+          <div class="competitor-list" id="competitorList"></div>
+        </section>
+
+        <section class="quick-panel">
+          <p class="section-kicker">报告完整度</p>
+          <div class="progress-track">
+            <div class="progress-bar" id="completionBar"></div>
+          </div>
+          <div class="metric-row">
+            <span id="completionText">0%</span>
+            <span id="savedState">未保存</span>
+          </div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">当前报告</p>
+            <input class="title-input" id="productName" aria-label="竞品名称" />
+          </div>
+          <div class="topbar-actions">
+            <button class="ghost-button" id="duplicateBtn" type="button">复制报告</button>
+            <button class="ghost-button" id="batchExportBtn" type="button">批量导出</button>
+            <button class="primary-button" id="exportBtn" type="button">导出报告</button>
+          </div>
+        </header>
+
+        <nav class="tabs" aria-label="报告模块">
+          <button class="tab is-active" type="button" data-tab="overview">详情</button>
+          <button class="tab" type="button" data-tab="interaction">交互</button>
+          <button class="tab" type="button" data-tab="evidence">证据</button>
+          <button class="tab" type="button" data-tab="analysis">分析</button>
+          <button class="tab" type="button" data-tab="summary">总结</button>
+        </nav>
+
+        <section class="tab-panel is-active" id="overviewPanel">
+          <div class="form-grid">
+            <label class="field">
+              <span>行业 / 赛道</span>
+              <input id="category" type="text" />
+            </label>
+            <label class="field">
+              <span>官网 / 产品链接</span>
+              <input id="website" type="url" />
+            </label>
+            <label class="field">
+              <span>目标用户</span>
+              <input id="audience" type="text" />
+            </label>
+            <label class="field">
+              <span>是否支持 API 开放</span>
+              <select id="apiSupport">
+                <option value="未知">未知</option>
+                <option value="支持">支持</option>
+                <option value="部分支持">部分支持</option>
+                <option value="不支持">不支持</option>
+              </select>
+            </label>
+            <label class="field full-span">
+              <span>竞品详情</span>
+              <textarea id="details" rows="7"></textarea>
+            </label>
+            <label class="field full-span">
+              <span>视频案例参考</span>
+              <textarea id="videos" rows="4" placeholder="有参考视频就记录标题、链接、观察点；没有可以留空"></textarea>
+            </label>
+            <div class="upload-panel full-span">
+              <div>
+                <strong>上传视频案例</strong>
+                <p>支持选择本机视频文件，报告中会记录文件名和大小。</p>
+              </div>
+              <label class="upload-button">
+                <input id="videoUpload" type="file" accept="video/*" multiple />
+                <span>选择视频</span>
+              </label>
+              <div class="video-list" id="videoList"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="interactionPanel">
+          <div class="interaction-layout">
+            <div class="flow-editor">
+              <div class="field">
+                <span>产品使用流程</span>
+                <textarea id="interactionText" rows="14" placeholder="示例：&#10;1. 进入首页&#10;2. 选择模板&#10;3. 上传素材&#10;4. 预览结果&#10;5. 导出报告"></textarea>
+              </div>
+              <div class="flow-actions">
+                <label class="inline-select">
+                  <span>图形样式</span>
+                  <select id="flowStyle">
+                    <option value="vertical">纵向步骤</option>
+                    <option value="horizontal">横向路径</option>
+                    <option value="grid">卡片矩阵</option>
+                  </select>
+                </label>
+                <label class="inline-select">
+                  <span>节点形状</span>
+                  <select id="nodeShape">
+                    <option value="rounded">圆角矩形</option>
+                    <option value="rectangle">直角矩形</option>
+                    <option value="pill">胶囊形</option>
+                    <option value="diamond">菱形</option>
+                  </select>
+                </label>
+                <button class="ghost-button" id="aiGenerateFlowBtn" type="button">AI 生成流程图</button>
+                <button class="primary-button" id="generateFlowBtn" type="button">生成流程图</button>
+                <button class="ghost-button" id="downloadPngBtn" type="button">下载 PNG</button>
+                <button class="ghost-button" id="downloadSvgBtn" type="button">下载 SVG</button>
+              </div>
+            </div>
+            <div class="flow-preview" aria-label="图表预览">
+              <div class="preview-header">
+                <span id="chartPreviewTitle">流程图</span>
+                <span id="flowCount">0 步</span>
+              </div>
+              <div class="flow-canvas" id="flowCanvas"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="analysisPanel">
+          <div class="analysis-grid">
+            <label class="field">
+              <span>产品优点</span>
+              <textarea id="pros" rows="8"></textarea>
+            </label>
+            <label class="field">
+              <span>产品缺点</span>
+              <textarea id="cons" rows="8"></textarea>
+            </label>
+            <label class="field">
+              <span>与我方产品的差异</span>
+              <textarea id="differences" rows="8"></textarea>
+            </label>
+            <label class="field">
+              <span>对我方产品的启发</span>
+              <textarea id="inspirations" rows="8"></textarea>
+            </label>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="evidencePanel">
+          <div class="evidence-layout">
+            <div class="evidence-composer">
+              <div class="form-grid">
+                <label class="field">
+                  <span>证据类型</span>
+                  <select id="evidenceType">
+                    <option value="官网信息">官网信息</option>
+                    <option value="体验记录">体验记录</option>
+                    <option value="截图说明">截图说明</option>
+                    <option value="视频案例">视频案例</option>
+                    <option value="用户反馈">用户反馈</option>
+                    <option value="价格 / 套餐">价格 / 套餐</option>
+                    <option value="API 文档">API 文档</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>证据标题</span>
+                  <input id="evidenceTitle" type="text" placeholder="例如：首页转化入口位置" />
+                </label>
+                <label class="field full-span">
+                  <span>链接 / 文件名</span>
+                  <input id="evidenceUrl" type="text" placeholder="官网链接、视频链接、截图文件名或内部资料编号" />
+                </label>
+                <label class="field full-span">
+                  <span>观察记录</span>
+                  <textarea id="evidenceNotes" rows="6" placeholder="写清楚你看到了什么、在哪一步看到、它支撑哪条判断"></textarea>
+                </label>
+              </div>
+              <div class="upload-panel evidence-upload-panel full-span">
+                <div>
+                  <strong>上传视频证据</strong>
+                  <p>适合把录屏、案例视频直接作为一条「视频案例」证据沉淀。</p>
+                </div>
+                <label class="upload-button">
+                  <input id="evidenceVideoUpload" type="file" accept="video/*" multiple />
+                  <span>选择视频证据</span>
+                </label>
+              </div>
+              <div class="flow-actions">
+                <button class="primary-button" id="addEvidenceBtn" type="button">添加证据</button>
+              </div>
+            </div>
+            <div class="evidence-list-wrap">
+              <div class="preview-header">
+                <span>证据库</span>
+                <span id="evidenceCount">0 条</span>
+              </div>
+              <div class="evidence-list" id="evidenceList"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="tab-panel" id="summaryPanel">
+          <div class="summary-layout">
+            <div class="summary-editor">
+              <label class="field">
+                <span>总结</span>
+                <textarea id="summary" rows="14"></textarea>
+              </label>
+            </div>
+            <div class="report-preview">
+              <div class="preview-header">
+                <span>报告预览</span>
+                <span id="previewDate"></span>
+              </div>
+              <article id="markdownPreview"></article>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <dialog id="exportDialog">
+      <form method="dialog">
+        <div class="dialog-header">
+          <h2>报告导出</h2>
+          <select id="exportScope" aria-label="导出范围">
+            <option value="current">当前报告</option>
+            <option value="all">全部竞品</option>
+          </select>
+          <select id="exportFormat" aria-label="导出格式">
+            <option value="markdown">Markdown</option>
+            <option value="plain">飞书友好文本</option>
+            <option value="word">Word 兼容 HTML</option>
+          </select>
+          <button class="icon-button" value="cancel" aria-label="关闭">×</button>
+        </div>
+        <textarea id="exportText" rows="18" readonly></textarea>
+        <div class="dialog-actions">
+          <button class="ghost-button" id="downloadWordBtn" type="button">下载 Word</button>
+          <button class="ghost-button" id="printPdfBtn" type="button">打印 / PDF</button>
+          <button class="ghost-button" id="copyExportBtn" type="button">复制内容</button>
+          <button class="primary-button" value="default">完成</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
