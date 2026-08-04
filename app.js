@@ -15,7 +15,7 @@ const sampleReports = [
     apiSupport: "部分支持",
     details:
       "Notion AI 将写作、问答、总结和数据库能力嵌入到文档工作流中。核心体验不是单独的聊天窗口，而是在用户已有信息结构里补充智能能力。",
-    videos: "可补充：官方产品演示、YouTube 上的 Notion AI workflow 案例。",
+    detailImages: [],
     videoUploads: [],
     interactionText:
       "1. 打开工作区\n2. 进入已有文档或数据库\n3. 选中文本或点击 AI 按钮\n4. 输入改写、总结或生成指令\n5. 预览 AI 输出\n6. 插入到当前页面\n7. 持续编辑和协作",
@@ -23,6 +23,12 @@ const sampleReports = [
     nodeShape: "rounded",
     pros: "AI 能力贴近真实文档场景；学习成本低；信息组织与生成动作衔接自然。",
     cons: "深度自动化能力有限；复杂任务依然需要用户拆解；结果质量依赖文档上下文。",
+    prosFormat: "bullets",
+    consFormat: "bullets",
+    differencesFormat: "bullets",
+    inspirationsFormat: "bullets",
+    includeDifferences: true,
+    includeInspirations: true,
     differences: "我方如果偏流程化报告，可比 Notion 更聚焦“竞品体验 -> 结构化沉淀 -> 团队复用”。",
     inspirations: "把 AI 嵌入具体字段和流程节点，不让用户跳出当前任务；提供可复用报告模板。",
     summary: "Notion AI 的价值来自场景嵌入。对我方启发是减少空白输入，把 AI 输出固定到报告字段和研究流程里。",
@@ -45,7 +51,7 @@ const sampleReports = [
     apiSupport: "支持",
     details:
       "Figma 的竞品体验重点在多人协作、设计资产管理、原型演示和开发交付。它把设计文件变成团队持续沟通的工作空间。",
-    videos: "",
+    detailImages: [],
     videoUploads: [],
     interactionText:
       "进入团队空间\n选择设计文件\n查看页面结构\n评论关键区域\n切换原型模式\n播放交互路径\n交付给研发",
@@ -53,6 +59,12 @@ const sampleReports = [
     nodeShape: "rounded",
     pros: "协作实时；设计与原型一体化；插件生态丰富；跨角色交付顺畅。",
     cons: "大型文件性能会波动；非设计角色初次进入容易迷路；高级能力分散在多个面板。",
+    prosFormat: "bullets",
+    consFormat: "bullets",
+    differencesFormat: "bullets",
+    inspirationsFormat: "bullets",
+    includeDifferences: true,
+    includeInspirations: true,
     differences: "我方工具更偏研究报告生产，而不是设计生产。差异点应放在信息结构、证据沉淀和决策启发。",
     inspirations: "报告工具可以学习它的评论、版本、组件化模板和可视化路径呈现。",
     summary: "Figma 的强项是把复杂协作放在一个可视化工作台中。竞品报告工具也应该让多人围绕同一份证据和结论协作。",
@@ -75,7 +87,6 @@ const fields = [
   "audience",
   "apiSupport",
   "details",
-  "videos",
   "interactionText",
   "pros",
   "cons",
@@ -103,12 +114,15 @@ const exportFormat = document.querySelector("#exportFormat");
 const exportScope = document.querySelector("#exportScope");
 const evidenceList = document.querySelector("#evidenceList");
 const evidenceCount = document.querySelector("#evidenceCount");
-const videoUpload = document.querySelector("#videoUpload");
-const videoList = document.querySelector("#videoList");
-const evidenceVideoUpload = document.querySelector("#evidenceVideoUpload");
+const detailImageUpload = document.querySelector("#detailImageUpload");
+const detailImageList = document.querySelector("#detailImageList");
+const evidenceMediaUpload = document.querySelector("#evidenceMediaUpload");
 const flowStyle = document.querySelector("#flowStyle");
 const nodeShape = document.querySelector("#nodeShape");
 const chartPreviewTitle = document.querySelector("#chartPreviewTitle");
+const analysisFormatFields = ["pros", "cons", "differences", "inspirations"];
+const includeDifferences = document.querySelector("#includeDifferences");
+const includeInspirations = document.querySelector("#includeInspirations");
 
 function loadState() {
   const cached = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("competitive-report-tool:v1");
@@ -136,9 +150,16 @@ function normalizeReport(report) {
     ...report,
     apiSupport: report.apiSupport || "未知",
     evidence: Array.isArray(report.evidence) ? report.evidence : [],
+    detailImages: Array.isArray(report.detailImages) ? report.detailImages : [],
     videoUploads: Array.isArray(report.videoUploads) ? report.videoUploads : [],
     flowStyle: report.flowStyle || "vertical",
-    nodeShape: report.nodeShape || "rounded"
+    nodeShape: report.nodeShape || "rounded",
+    prosFormat: report.prosFormat || "bullets",
+    consFormat: report.consFormat || "bullets",
+    differencesFormat: report.differencesFormat || "bullets",
+    inspirationsFormat: report.inspirationsFormat || "bullets",
+    includeDifferences: report.includeDifferences ?? Boolean(report.differences),
+    includeInspirations: report.includeInspirations ?? Boolean(report.inspirations)
   };
 }
 
@@ -171,6 +192,7 @@ function persist() {
     ...state,
     reports: state.reports.map((report) => ({
       ...report,
+      detailImages: (report.detailImages || []).map(({ previewUrl, ...image }) => image),
       videoUploads: (report.videoUploads || []).map(({ previewUrl, ...video }) => video)
     }))
   };
@@ -246,6 +268,32 @@ function bindInputs() {
       persist();
     });
   });
+
+  analysisFormatFields.forEach((fieldName) => {
+    const select = document.querySelector(`#${fieldName}Format`);
+    select.addEventListener("change", () => {
+      const report = getActiveReport();
+      report[`${fieldName}Format`] = select.value;
+      renderPreview();
+      persist();
+    });
+  });
+
+  [
+    ["includeDifferences", "differences"],
+    ["includeInspirations", "inspirations"]
+  ].forEach(([toggleId, fieldName]) => {
+    const toggle = document.querySelector(`#${toggleId}`);
+    const textarea = document.querySelector(`#${fieldName}`);
+    toggle.addEventListener("change", () => {
+      const report = getActiveReport();
+      report[toggleId] = toggle.checked;
+      textarea.disabled = !toggle.checked;
+      renderMeta();
+      renderPreview();
+      persist();
+    });
+  });
 }
 
 function renderForm() {
@@ -254,19 +302,27 @@ function renderForm() {
     const input = document.querySelector(`#${fieldName}`);
     input.value = report[fieldName] || "";
   });
+  analysisFormatFields.forEach((fieldName) => {
+    const select = document.querySelector(`#${fieldName}Format`);
+    if (select) select.value = report[`${fieldName}Format`] || "bullets";
+  });
+  includeDifferences.checked = Boolean(report.includeDifferences);
+  includeInspirations.checked = Boolean(report.includeInspirations);
+  document.querySelector("#differences").disabled = !includeDifferences.checked;
+  document.querySelector("#inspirations").disabled = !includeInspirations.checked;
   flowStyle.value = report.flowStyle || "vertical";
   nodeShape.value = report.nodeShape || "rounded";
 }
 
 function renderMeta() {
   const report = getActiveReport();
-  const requiredFields = fields.filter((name) => name !== "videos");
+  const requiredFields = fields.filter((name) => !["differences", "inspirations"].includes(name));
   const filled = requiredFields.filter((name) => String(report[name] || "").trim()).length;
   const evidenceReady = (report.evidence || []).length > 0 ? 1 : 0;
   const completion = Math.round(((filled + evidenceReady) / (requiredFields.length + 1)) * 100);
   completionBar.style.width = `${completion}%`;
   completionText.textContent = `${completion}%`;
-  document.title = `${report.productName || "竞品"} - 竞品体验报告工具`;
+  document.title = `${report.productName || "竞品"} - 竞品体验分析报告工作台`;
 }
 
 function parseSteps(text) {
@@ -436,7 +492,8 @@ function renderEvidence() {
   }
 
   evidence.forEach((item) => {
-    const linkedVideo = item.videoId ? (report.videoUploads || []).find((video) => video.id === item.videoId) : null;
+    const mediaId = item.mediaId || item.videoId;
+    const linkedMedia = mediaId ? (report.videoUploads || []).find((media) => media.id === mediaId) : null;
     const card = document.createElement("article");
     card.className = "evidence-card";
     card.innerHTML = `
@@ -445,10 +502,8 @@ function renderEvidence() {
         <button class="icon-button evidence-delete" type="button" title="删除证据" aria-label="删除证据">×</button>
       </div>
       ${
-        linkedVideo
-          ? linkedVideo.previewUrl || linkedVideo.url
-            ? `<video class="evidence-video" src="${resolveAssetUrl(linkedVideo.previewUrl || linkedVideo.url)}" controls muted></video>`
-            : '<div class="video-placeholder evidence-video">本地视频</div>'
+        linkedMedia
+          ? renderMediaPreview(linkedMedia, "evidence-media")
           : ""
       }
       <h3>${escapeHtml(item.title || "未命名证据")}</h3>
@@ -456,13 +511,12 @@ function renderEvidence() {
       <p>${escapeHtml(item.notes || "未填写观察记录")}</p>
     `;
     card.querySelector(".evidence-delete").addEventListener("click", () => {
-      if (item.videoId) {
-        const video = (report.videoUploads || []).find((candidate) => candidate.id === item.videoId);
-        if (video?.previewUrl) URL.revokeObjectURL(video.previewUrl);
-        report.videoUploads = (report.videoUploads || []).filter((candidate) => candidate.id !== item.videoId);
+      if (mediaId) {
+        const media = (report.videoUploads || []).find((candidate) => candidate.id === mediaId);
+        if (media?.previewUrl) URL.revokeObjectURL(media.previewUrl);
+        report.videoUploads = (report.videoUploads || []).filter((candidate) => candidate.id !== mediaId);
       }
       report.evidence = evidence.filter((candidate) => candidate.id !== item.id);
-      renderVideos();
       renderEvidence();
       renderMeta();
       renderPreview();
@@ -502,42 +556,57 @@ function addEvidence() {
   persist();
 }
 
-function renderVideos() {
-  const report = getActiveReport();
-  const videos = report.videoUploads || [];
-  videoList.innerHTML = "";
+function isImageMedia(media) {
+  return (media.type || media.mimeType || "").startsWith("image/");
+}
 
-  if (!videos.length) {
-    videoList.innerHTML = '<div class="empty-note">还没有上传视频</div>';
+function renderMediaPreview(media, className = "") {
+  const source = media.previewUrl || media.url;
+  const classes = className ? ` class="${className}"` : "";
+  if (!source) {
+    return `<div${classes}>本地${isImageMedia(media) ? "图片" : "视频"}</div>`;
+  }
+  if (isImageMedia(media)) {
+    return `<img${classes} src="${resolveAssetUrl(source)}" alt="${escapeHtml(media.name || "上传图片")}" />`;
+  }
+  return `<video${classes} src="${resolveAssetUrl(source)}" controls muted></video>`;
+}
+
+function renderDetailImages() {
+  const report = getActiveReport();
+  const images = report.detailImages || [];
+  detailImageList.innerHTML = "";
+
+  if (!images.length) {
+    detailImageList.innerHTML = '<div class="empty-note">还没有上传详情图片</div>';
     return;
   }
 
-  videos.forEach((video) => {
+  images.forEach((image) => {
     const item = document.createElement("article");
-    item.className = "video-item";
-    const videoSrc = video.previewUrl || video.url;
+    item.className = "media-item";
     item.innerHTML = `
-      ${videoSrc ? `<video src="${resolveAssetUrl(videoSrc)}" controls muted></video>` : '<div class="video-placeholder">本地视频</div>'}
+      ${renderMediaPreview(image, "media-thumbnail")}
       <div>
-        <strong>${escapeHtml(video.name)}</strong>
-        <span>${formatFileSize(video.size)} · ${escapeHtml(video.type || video.mimeType || "video")}</span>
+        <strong>${escapeHtml(image.name)}</strong>
+        <span>${formatFileSize(image.size)} · 图片</span>
       </div>
-      <button class="icon-button video-delete" type="button" title="删除视频" aria-label="删除视频">×</button>
+      <button class="icon-button media-delete" type="button" title="删除图片" aria-label="删除图片">×</button>
     `;
-    item.querySelector(".video-delete").addEventListener("click", () => {
-      if (video.previewUrl) URL.revokeObjectURL(video.previewUrl);
-      report.videoUploads = videos.filter((candidate) => candidate.id !== video.id);
-      renderVideos();
+    item.querySelector(".media-delete").addEventListener("click", () => {
+      if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
+      report.detailImages = images.filter((candidate) => candidate.id !== image.id);
+      renderDetailImages();
       renderPreview();
       persist();
     });
-    videoList.appendChild(item);
+    detailImageList.appendChild(item);
   });
 }
 
-function handleVideoUpload(files) {
+function handleDetailImageUpload(files) {
   const report = getActiveReport();
-  report.videoUploads = report.videoUploads || [];
+  report.detailImages = report.detailImages || [];
   const queue = Array.from(files);
 
   if (backendReady) {
@@ -551,26 +620,26 @@ function handleVideoUpload(files) {
       .then((payload) => {
         const uploaded = Array.isArray(payload.data) ? payload.data.map((item) => ({ ...item })) : [];
         uploaded.reverse().forEach((item) => {
-          report.videoUploads.unshift(item);
+          report.detailImages.unshift(item);
         });
-        videoUpload.value = "";
-        renderVideos();
+        detailImageUpload.value = "";
+        renderDetailImages();
         renderPreview();
         persist();
       })
       .catch(() => {
         queue.forEach((file) => {
-          report.videoUploads.unshift({
+          report.detailImages.unshift({
             id: createId(),
             name: file.name,
             size: file.size,
-            type: file.type || "video",
+            type: file.type || "image",
             addedAt: new Date().toISOString(),
             previewUrl: URL.createObjectURL(file)
           });
         });
-        videoUpload.value = "";
-        renderVideos();
+        detailImageUpload.value = "";
+        renderDetailImages();
         renderPreview();
         persist();
       });
@@ -578,49 +647,48 @@ function handleVideoUpload(files) {
   }
 
   queue.forEach((file) => {
-    report.videoUploads.unshift({
+    report.detailImages.unshift({
       id: createId(),
       name: file.name,
       size: file.size,
-      type: file.type || "video",
+      type: file.type || "image",
       addedAt: new Date().toISOString(),
       previewUrl: URL.createObjectURL(file)
     });
   });
-  videoUpload.value = "";
-  renderVideos();
+  detailImageUpload.value = "";
+  renderDetailImages();
   renderPreview();
   persist();
 }
 
-function handleEvidenceVideoUpload(files) {
+function handleEvidenceMediaUpload(files) {
   const report = getActiveReport();
   report.videoUploads = report.videoUploads || [];
   report.evidence = report.evidence || [];
   const queue = Array.from(files);
 
-  const addLocalVideos = () => {
+  const addLocalMedia = () => {
     queue.forEach((file) => {
-      const video = {
+      const media = {
         id: createId(),
         name: file.name,
         size: file.size,
-        type: file.type || "video",
+        type: file.type || "application/octet-stream",
         addedAt: new Date().toISOString(),
         previewUrl: URL.createObjectURL(file)
       };
-      report.videoUploads.unshift(video);
+      report.videoUploads.unshift(media);
       report.evidence.unshift({
         id: createId(),
-        type: "视频案例",
+        type: "图片 / 视频素材",
         title: file.name,
         url: file.name,
-        notes: `上传视频证据，文件大小：${formatFileSize(file.size)}。`,
-        videoId: video.id
+        notes: `上传${isImageMedia(media) ? "图片" : "视频"}证据，文件大小：${formatFileSize(file.size)}。`,
+        mediaId: media.id
       });
     });
-    evidenceVideoUpload.value = "";
-    renderVideos();
+    evidenceMediaUpload.value = "";
     renderEvidence();
     renderMeta();
     renderPreview();
@@ -637,29 +705,28 @@ function handleEvidenceVideoUpload(files) {
       .then((response) => response.json())
       .then((payload) => {
         const uploaded = Array.isArray(payload.data) ? payload.data.map((item) => ({ ...item })) : [];
-        uploaded.reverse().forEach((video) => {
-          report.videoUploads.unshift(video);
+        uploaded.reverse().forEach((media) => {
+          report.videoUploads.unshift(media);
           report.evidence.unshift({
             id: createId(),
-            type: "视频案例",
-            title: video.name,
-            url: video.url || video.fileName || video.name,
-            notes: `上传视频证据，文件大小：${formatFileSize(video.size)}。`,
-            videoId: video.id
+            type: "图片 / 视频素材",
+            title: media.name,
+            url: media.url || media.fileName || media.name,
+            notes: `上传${isImageMedia(media) ? "图片" : "视频"}证据，文件大小：${formatFileSize(media.size)}。`,
+            mediaId: media.id
           });
         });
-        evidenceVideoUpload.value = "";
-        renderVideos();
+        evidenceMediaUpload.value = "";
         renderEvidence();
         renderMeta();
         renderPreview();
         persist();
       })
-      .catch(addLocalVideos);
+      .catch(addLocalMedia);
     return;
   }
 
-  addLocalVideos();
+  addLocalMedia();
 }
 
 function wrapSvgText(text, x, y, maxWidth) {
@@ -691,9 +758,22 @@ function renderPreview() {
   markdownPreview.innerHTML = markdownToHtml(buildMarkdown(report, { includeSummary: !isSummaryPanelActive }));
 }
 
-function getUploadedVideosText(report) {
-  if (!(report.videoUploads || []).length) return "未上传";
-  return report.videoUploads.map((video, index) => `${index + 1}. ${video.name}（${formatFileSize(video.size)}）`).join("\n");
+function getDetailImagesText(report) {
+  if (!(report.detailImages || []).length) return "";
+  return report.detailImages.map((image, index) => `${index + 1}. ${image.name}（${formatFileSize(image.size)}）`).join("\n");
+}
+
+function formatAnalysisText(text, format = "bullets") {
+  const items = String(text || "")
+    .split(/\n|；|;/)
+    .map((item) => item.replace(/^\s*(?:[-•]|\d+[.、])\s*/, "").trim())
+    .filter(Boolean);
+
+  if (!items.length) return "";
+  if (format === "numbered") {
+    return items.map((item, index) => `${index + 1}. ${item}`).join("\n");
+  }
+  return items.map((item) => `- ${item}`).join("\n");
 }
 
 function getEvidenceText(report, mode = "markdown") {
@@ -714,15 +794,17 @@ function getEvidenceText(report, mode = "markdown") {
 
 function getSections(report, options = {}) {
   const includeSummary = options.includeSummary !== false;
+  const details = [report.details?.trim(), getDetailImagesText(report) ? `详情图片：\n${getDetailImagesText(report)}` : ""]
+    .filter(Boolean)
+    .join("\n");
   const sections = [
-    ["竞品详情", report.details],
+    ["竞品详情", details],
     ["产品交互", report.interactionText],
     ["证据记录", getEvidenceText(report)],
-    ["产品优点", report.pros],
-    ["产品缺点", report.cons],
-    ["视频案例参考", [report.videos?.trim(), getUploadedVideosText(report)].filter(Boolean).join("\n")],
-    ["与我方产品的差异", report.differences],
-    ["对我方产品的启发", report.inspirations],
+    ["产品优点", formatAnalysisText(report.pros, report.prosFormat)],
+    ["产品缺点", formatAnalysisText(report.cons, report.consFormat)],
+    ...(report.includeDifferences ? [["与我方产品的差异", formatAnalysisText(report.differences, report.differencesFormat)]] : []),
+    ...(report.includeInspirations ? [["对我方产品的启发", formatAnalysisText(report.inspirations, report.inspirationsFormat)]] : []),
     ["是否支持 API 开放", report.apiSupport],
     ["总结", report.summary]
   ];
@@ -731,7 +813,7 @@ function getSections(report, options = {}) {
 
 function buildMarkdown(report, options = {}) {
   return [
-    `# ${report.productName || "未命名竞品"} 体验报告`,
+    `# ${report.productName || "未命名竞品"} 体验分析报告`,
     "",
     `- 行业 / 赛道：${report.category || "未填写"}`,
     `- 官网 / 产品链接：${report.website || "未填写"}`,
@@ -743,7 +825,7 @@ function buildMarkdown(report, options = {}) {
 
 function buildPlainText(report) {
   return [
-    `${report.productName || "未命名竞品"} 体验报告`,
+    `${report.productName || "未命名竞品"} 体验分析报告`,
     "",
     `行业 / 赛道：${report.category || "未填写"}`,
     `官网 / 产品链接：${report.website || "未填写"}`,
@@ -762,7 +844,7 @@ function buildHtmlReport(report) {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(report.productName || "竞品")} 体验报告</title>
+  <title>${escapeHtml(report.productName || "竞品")} 体验分析报告</title>
   <style>
     body { font-family: "Microsoft YaHei", Arial, sans-serif; color: #18212f; line-height: 1.7; padding: 32px; }
     h1 { font-size: 26px; margin: 0 0 18px; }
@@ -772,7 +854,7 @@ function buildHtmlReport(report) {
   </style>
 </head>
 <body>
-  <h1>${escapeHtml(report.productName || "未命名竞品")} 体验报告</h1>
+  <h1>${escapeHtml(report.productName || "未命名竞品")} 体验分析报告</h1>
   <div class="meta">
     行业 / 赛道：${escapeHtml(report.category || "未填写")}<br>
     官网 / 产品链接：${escapeHtml(report.website || "未填写")}<br>
@@ -805,7 +887,7 @@ function buildCombinedHtmlReport(reports) {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>批量竞品体验报告</title>
+  <title>批量竞品体验分析报告</title>
   <style>
     body { font-family: "Microsoft YaHei", Arial, sans-serif; color: #18212f; line-height: 1.7; padding: 32px; }
     h1 { font-size: 26px; margin: 0 0 18px; }
@@ -826,7 +908,7 @@ function getExportReports() {
 }
 
 function getExportFilenameBase() {
-  return exportScope.value === "all" ? "批量竞品体验报告" : `${getActiveReport().productName || "竞品"}-体验报告`;
+  return exportScope.value === "all" ? "批量竞品体验分析报告" : `${getActiveReport().productName || "竞品"}-体验分析报告`;
 }
 
 function markdownToHtml(markdown) {
@@ -845,7 +927,7 @@ function renderAll() {
   renderForm();
   renderMeta();
   renderFlow();
-  renderVideos();
+  renderDetailImages();
   renderEvidence();
   renderPreview();
 }
@@ -859,13 +941,19 @@ function addCompetitor() {
     audience: "",
     apiSupport: "未知",
     details: "",
-    videos: "",
+    detailImages: [],
     videoUploads: [],
     interactionText: "",
     flowStyle: "vertical",
     nodeShape: "rounded",
     pros: "",
     cons: "",
+    prosFormat: "bullets",
+    consFormat: "bullets",
+    differencesFormat: "bullets",
+    inspirationsFormat: "bullets",
+    includeDifferences: false,
+    includeInspirations: false,
     differences: "",
     inspirations: "",
     summary: "",
@@ -885,6 +973,7 @@ function duplicateReport() {
     ...structuredClone(current),
     id: createId(),
     productName: `${current.productName || "竞品"} 副本`,
+    detailImages: (current.detailImages || []).map(({ previewUrl, ...image }) => ({ ...image, id: createId() })),
     videoUploads: (current.videoUploads || []).map(({ previewUrl, ...video }) => ({ ...video, id: createId() }))
   };
   state.reports.unshift(clone);
@@ -1029,8 +1118,8 @@ nodeShape.addEventListener("change", () => {
   renderFlow();
   persist();
 });
-videoUpload.addEventListener("change", (event) => handleVideoUpload(event.target.files));
-evidenceVideoUpload.addEventListener("change", (event) => handleEvidenceVideoUpload(event.target.files));
+detailImageUpload.addEventListener("change", (event) => handleDetailImageUpload(event.target.files));
+evidenceMediaUpload.addEventListener("change", (event) => handleEvidenceMediaUpload(event.target.files));
 competitorSearch.addEventListener("input", renderCompetitors);
 exportFormat.addEventListener("change", updateExportText);
 exportScope.addEventListener("change", updateExportText);

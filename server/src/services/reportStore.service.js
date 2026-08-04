@@ -43,13 +43,19 @@ function normalizeReport(report) {
     audience: report.audience || "",
     apiSupport: report.apiSupport || "未知",
     details: report.details || "",
-    videos: report.videos || "",
+    detailImages: Array.isArray(report.detailImages) ? report.detailImages : [],
     videoUploads: Array.isArray(report.videoUploads) ? report.videoUploads : [],
     interactionText: report.interactionText || "",
     flowStyle: report.flowStyle || "vertical",
     nodeShape: report.nodeShape || "rounded",
     pros: report.pros || "",
     cons: report.cons || "",
+    prosFormat: report.prosFormat || "bullets",
+    consFormat: report.consFormat || "bullets",
+    differencesFormat: report.differencesFormat || "bullets",
+    inspirationsFormat: report.inspirationsFormat || "bullets",
+    includeDifferences: report.includeDifferences ?? Boolean(report.differences),
+    includeInspirations: report.includeInspirations ?? Boolean(report.inspirations),
     differences: report.differences || "",
     inspirations: report.inspirations || "",
     summary: report.summary || "",
@@ -112,6 +118,10 @@ async function duplicateReport(id) {
     ...report,
     id: createId("report"),
     productName: `${report.productName || "竞品"} 副本`,
+    detailImages: (report.detailImages || []).map((image) => ({
+      ...image,
+      id: createId("file")
+    })),
     videoUploads: (report.videoUploads || []).map((video) => ({
       ...video,
       id: createId("file")
@@ -190,7 +200,7 @@ async function deleteUpload(reportId, fileId) {
   const target = (report.videoUploads || []).find((item) => item.id === fileId);
   if (!target) return null;
   const videoUploads = (report.videoUploads || []).filter((item) => item.id !== fileId);
-  const evidence = (report.evidence || []).filter((item) => item.videoId !== fileId);
+  const evidence = (report.evidence || []).filter((item) => item.videoId !== fileId && item.mediaId !== fileId);
   const next = await updateReport(reportId, { videoUploads, evidence });
   return { next, target };
 }

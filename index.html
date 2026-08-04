@@ -3,16 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>竞品体验报告工具</title>
+    <title>竞品体验分析报告工作台</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="竞品选择">
         <div class="brand-block">
-          <div class="brand-mark">CR</div>
+          <div class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="img">
+              <path d="M7 5.5h13.5L25 10v16.5H7z" fill="none" stroke="currentColor" stroke-width="2" />
+              <path d="M20.5 5.5V10H25" fill="none" stroke="currentColor" stroke-width="2" />
+              <path d="M11 15h10M11 20h6" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              <circle cx="21.5" cy="22.5" r="3.2" fill="none" stroke="currentColor" stroke-width="2" />
+              <path d="m24 25 2.2 2.2" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+            </svg>
+          </div>
           <div>
-            <h1>竞品体验报告</h1>
+            <h1>竞品体验分析报告工作台</h1>
           </div>
         </div>
 
@@ -44,11 +52,6 @@
           <div>
             <p class="eyebrow">当前报告</p>
             <input class="title-input" id="productName" aria-label="竞品名称" />
-          </div>
-          <div class="topbar-actions">
-            <button class="ghost-button" id="duplicateBtn" type="button">复制报告</button>
-            <button class="ghost-button" id="batchExportBtn" type="button">批量导出</button>
-            <button class="primary-button" id="exportBtn" type="button">导出报告</button>
           </div>
         </header>
 
@@ -85,22 +88,18 @@
             </label>
             <label class="field full-span">
               <span>竞品详情</span>
-              <textarea id="details" rows="7"></textarea>
-            </label>
-            <label class="field full-span">
-              <span>视频案例参考</span>
-              <textarea id="videos" rows="4" placeholder="有参考视频就记录标题、链接、观察点；没有可以留空"></textarea>
+              <textarea id="details" rows="9" placeholder="记录核心定位、关键功能、页面信息、体验观察等文字内容"></textarea>
             </label>
             <div class="upload-panel full-span">
               <div>
-                <strong>上传视频案例</strong>
-                <p>支持选择本机视频文件，报告中会记录文件名和大小。</p>
+                <strong>上传详情图片</strong>
+                <p>支持上传截图、页面示意图或功能截图，作为竞品详情的补充材料。</p>
               </div>
               <label class="upload-button">
-                <input id="videoUpload" type="file" accept="video/*" multiple />
-                <span>选择视频</span>
+                <input id="detailImageUpload" type="file" accept="image/*" multiple />
+                <span>选择图片</span>
               </label>
-              <div class="video-list" id="videoList"></div>
+              <div class="media-list" id="detailImageList"></div>
             </div>
           </div>
         </section>
@@ -148,22 +147,44 @@
 
         <section class="tab-panel" id="analysisPanel">
           <div class="analysis-grid">
-            <label class="field">
-              <span>产品优点</span>
+            <label class="field analysis-field">
+              <span>产品优点（必填）</span>
+              <select id="prosFormat" aria-label="产品优点呈现形式">
+                <option value="bullets">分点形式</option>
+                <option value="numbered">1.2.3 编号</option>
+              </select>
               <textarea id="pros" rows="8"></textarea>
             </label>
-            <label class="field">
-              <span>产品缺点</span>
+            <label class="field analysis-field">
+              <span>产品缺点（必填）</span>
+              <select id="consFormat" aria-label="产品缺点呈现形式">
+                <option value="bullets">分点形式</option>
+                <option value="numbered">1.2.3 编号</option>
+              </select>
               <textarea id="cons" rows="8"></textarea>
             </label>
-            <label class="field">
-              <span>与我方产品的差异</span>
+            <div class="field analysis-field">
+              <span>与我方产品的差异（可选）</span>
+              <div class="analysis-controls">
+                <label><input id="includeDifferences" type="checkbox" /> 纳入报告</label>
+                <select id="differencesFormat" aria-label="与我方产品的差异呈现形式">
+                  <option value="bullets">分点形式</option>
+                  <option value="numbered">1.2.3 编号</option>
+                </select>
+              </div>
               <textarea id="differences" rows="8"></textarea>
-            </label>
-            <label class="field">
-              <span>对我方产品的启发</span>
+            </div>
+            <div class="field analysis-field">
+              <span>对我方产品的启发（可选）</span>
+              <div class="analysis-controls">
+                <label><input id="includeInspirations" type="checkbox" /> 纳入报告</label>
+                <select id="inspirationsFormat" aria-label="对我方产品的启发呈现形式">
+                  <option value="bullets">分点形式</option>
+                  <option value="numbered">1.2.3 编号</option>
+                </select>
+              </div>
               <textarea id="inspirations" rows="8"></textarea>
-            </label>
+            </div>
           </div>
         </section>
 
@@ -177,7 +198,7 @@
                     <option value="官网信息">官网信息</option>
                     <option value="体验记录">体验记录</option>
                     <option value="截图说明">截图说明</option>
-                    <option value="视频案例">视频案例</option>
+                    <option value="图片 / 视频素材">图片 / 视频素材</option>
                     <option value="用户反馈">用户反馈</option>
                     <option value="价格 / 套餐">价格 / 套餐</option>
                     <option value="API 文档">API 文档</option>
@@ -189,7 +210,7 @@
                 </label>
                 <label class="field full-span">
                   <span>链接 / 文件名</span>
-                  <input id="evidenceUrl" type="text" placeholder="官网链接、视频链接、截图文件名或内部资料编号" />
+                  <input id="evidenceUrl" type="text" placeholder="官网链接、图片/视频文件名、截图文件名或内部资料编号" />
                 </label>
                 <label class="field full-span">
                   <span>观察记录</span>
@@ -198,12 +219,12 @@
               </div>
               <div class="upload-panel evidence-upload-panel full-span">
                 <div>
-                  <strong>上传视频证据</strong>
-                  <p>适合把录屏、案例视频直接作为一条「视频案例」证据沉淀。</p>
+                  <strong>上传图片 / 视频证据</strong>
+                  <p>支持上传截图、页面图片、录屏或案例视频，直接沉淀为一条证据。</p>
                 </div>
                 <label class="upload-button">
-                  <input id="evidenceVideoUpload" type="file" accept="video/*" multiple />
-                  <span>选择视频证据</span>
+                  <input id="evidenceMediaUpload" type="file" accept="image/*,video/*" multiple />
+                  <span>选择素材</span>
                 </label>
               </div>
               <div class="flow-actions">
@@ -227,6 +248,11 @@
                 <span>总结</span>
                 <textarea id="summary" rows="14"></textarea>
               </label>
+              <div class="summary-actions">
+                <button class="ghost-button" id="duplicateBtn" type="button">复制报告</button>
+                <button class="ghost-button" id="batchExportBtn" type="button">批量导出</button>
+                <button class="primary-button" id="exportBtn" type="button">导出报告</button>
+              </div>
             </div>
             <div class="report-preview">
               <div class="preview-header">

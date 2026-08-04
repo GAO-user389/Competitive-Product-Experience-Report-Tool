@@ -1,9 +1,22 @@
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 
-function getUploadedVideosText(report) {
-  if (!(report.videoUploads || []).length) return "未上传";
-  return report.videoUploads.map((video, index) => `${index + 1}. ${video.name}（${formatFileSize(video.size)}）`).join("\n");
+function getDetailImagesText(report) {
+  if (!(report.detailImages || []).length) return "";
+  return report.detailImages.map((image, index) => `${index + 1}. ${image.name}（${formatFileSize(image.size)}）`).join("\n");
+}
+
+function formatAnalysisText(text, format = "bullets") {
+  const items = String(text || "")
+    .split(/\n|；|;/)
+    .map((item) => item.replace(/^\s*(?:[-•]|\d+[.、])\s*/, "").trim())
+    .filter(Boolean);
+
+  if (!items.length) return "";
+  if (format === "numbered") {
+    return items.map((item, index) => `${index + 1}. ${item}`).join("\n");
+  }
+  return items.map((item) => `- ${item}`).join("\n");
 }
 
 function getEvidenceText(report, mode = "markdown") {
@@ -22,15 +35,17 @@ function getEvidenceText(report, mode = "markdown") {
 }
 
 function getSections(report) {
+  const details = [report.details?.trim(), getDetailImagesText(report) ? `详情图片：\n${getDetailImagesText(report)}` : ""]
+    .filter(Boolean)
+    .join("\n");
   return [
-    ["竞品详情", report.details],
+    ["竞品详情", details],
     ["产品交互", report.interactionText],
     ["证据记录", getEvidenceText(report)],
-    ["产品优点", report.pros],
-    ["产品缺点", report.cons],
-    ["视频案例参考", [report.videos?.trim(), getUploadedVideosText(report)].filter(Boolean).join("\n")],
-    ["与我方产品的差异", report.differences],
-    ["对我方产品的启发", report.inspirations],
+    ["产品优点", formatAnalysisText(report.pros, report.prosFormat)],
+    ["产品缺点", formatAnalysisText(report.cons, report.consFormat)],
+    ...(report.includeDifferences ? [["与我方产品的差异", formatAnalysisText(report.differences, report.differencesFormat)]] : []),
+    ...(report.includeInspirations ? [["对我方产品的启发", formatAnalysisText(report.inspirations, report.inspirationsFormat)]] : []),
     ["是否支持 API 开放", report.apiSupport],
     ["总结", report.summary]
   ];
@@ -38,7 +53,7 @@ function getSections(report) {
 
 function buildMarkdown(report) {
   return [
-    `# ${report.productName || "未命名竞品"} 体验报告`,
+    `# ${report.productName || "未命名竞品"} 体验分析报告`,
     "",
     `- 行业 / 赛道：${report.category || "未填写"}`,
     `- 官网 / 产品链接：${report.website || "未填写"}`,
@@ -50,7 +65,7 @@ function buildMarkdown(report) {
 
 function buildPlainText(report) {
   return [
-    `${report.productName || "未命名竞品"} 体验报告`,
+    `${report.productName || "未命名竞品"} 体验分析报告`,
     "",
     `行业 / 赛道：${report.category || "未填写"}`,
     `官网 / 产品链接：${report.website || "未填写"}`,
@@ -69,7 +84,7 @@ function buildHtmlReport(report) {
 <html>
 <head>
   <meta charset="utf-8">
-  <title>${escapeHtml(report.productName || "竞品")} 体验报告</title>
+  <title>${escapeHtml(report.productName || "竞品")} 体验分析报告</title>
   <style>
     body { font-family: "Microsoft YaHei", Arial, sans-serif; color: #18212f; line-height: 1.7; padding: 32px; }
     h1 { font-size: 26px; margin: 0 0 18px; }
@@ -80,7 +95,7 @@ function buildHtmlReport(report) {
   </style>
 </head>
 <body>
-  <h1>${escapeHtml(report.productName || "未命名竞品")} 体验报告</h1>
+  <h1>${escapeHtml(report.productName || "未命名竞品")} 体验分析报告</h1>
   <div class="meta">
     行业 / 赛道：${escapeHtml(report.category || "未填写")}<br>
     官网 / 产品链接：${escapeHtml(report.website || "未填写")}<br>
@@ -106,7 +121,7 @@ function buildExportContent(reports, format) {
         .replace(/<\/body>[\s\S]*$/, "");
       return `${index > 0 ? '<div class="page-break"></div>' : ""}${body}`;
     });
-    return buildHtmlShell("竞品体验报告", bodies.join(""));
+    return buildHtmlShell("竞品体验分析报告", bodies.join(""));
   }
   return buildCombined(reports, buildMarkdown, "\n\n---\n\n");
 }
@@ -137,7 +152,7 @@ function streamPdf(reports, writable) {
 
   reports.forEach((report, reportIndex) => {
     if (reportIndex > 0) doc.addPage();
-    doc.fontSize(20).text(`${report.productName || "未命名竞品"} 体验报告`, { underline: true });
+    doc.fontSize(20).text(`${report.productName || "未命名竞品"} 体验分析报告`, { underline: true });
     doc.moveDown();
     doc.fontSize(11).text(`行业 / 赛道：${report.category || "未填写"}`);
     doc.text(`官网 / 产品链接：${report.website || "未填写"}`);
@@ -175,7 +190,7 @@ function useReadableFont(doc) {
 }
 
 function getExportMeta(format, scope) {
-  const baseName = scope === "all" ? "批量竞品体验报告" : "竞品体验报告";
+  const baseName = scope === "all" ? "批量竞品体验分析报告" : "竞品体验分析报告";
   if (format === "plain") return { contentType: "text/plain; charset=utf-8", filename: `${baseName}.txt` };
   if (format === "html") return { contentType: "text/html; charset=utf-8", filename: `${baseName}.html` };
   if (format === "word") return { contentType: "application/msword; charset=utf-8", filename: `${baseName}.doc` };
