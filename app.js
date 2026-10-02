@@ -1,5 +1,17 @@
+// 竞品体验分析报告工作台 — 纯 localStorage 离线版
+// 所有数据（含图片）均保存在浏览器本地，不依赖任何后端。
+
 const STORAGE_KEY = "competitive-report-tool:v2";
-const API_BASE = location.protocol === "file:" ? "http://localhost:3000/api" : "/api";
+const THEME_KEY = "competitive-report-tool:theme";
+
+// 流程图配色（与主题保持一致的科技蓝）
+const C = {
+  accent: "#0071e3",
+  accentSoft: "#e8f1ff",
+  nodeStroke: "#d2d2d7",
+  arrow: "#9aa0a6",
+  text: "#1d1d1f"
+};
 
 function createId() {
   return `report-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -97,12 +109,14 @@ const fields = [
 
 let state = loadState();
 let activeId = state.activeId || state.reports[0]?.id;
-let backendReady = false;
-let syncTimer = null;
+
+let uiFilter = "all";
+let uiSort = "name";
+let uiCategory = null;
 
 const competitorList = document.querySelector("#competitorList");
 const competitorSearch = document.querySelector("#competitorSearch");
-const completionBar = document.querySelector("#completionBar");
+const completionFill = document.querySelector("#completionFill");
 const completionText = document.querySelector("#completionText");
 const savedState = document.querySelector("#savedState");
 const flowCanvas = document.querySelector("#flowCanvas");
@@ -120,14 +134,19 @@ const evidenceMediaUpload = document.querySelector("#evidenceMediaUpload");
 const flowStyle = document.querySelector("#flowStyle");
 const nodeShape = document.querySelector("#nodeShape");
 const chartPreviewTitle = document.querySelector("#chartPreviewTitle");
+const categoryModule = document.querySelector("#categoryModule");
+const statGrid = document.querySelector("#statGrid");
 const analysisFormatFields = ["pros", "cons", "differences", "inspirations"];
 const includeDifferences = document.querySelector("#includeDifferences");
 const includeInspirations = document.querySelector("#includeInspirations");
 
+// 文本测量（用于流程图节点内换行）
+const measureCtx = document.createElement("canvas").getContext("2d");
+
 function loadState() {
   const cached = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("competitive-report-tool:v1");
   if (!cached) {
-    return { reports: sampleReports, activeId: sampleReports[0].id };
+    return { reports: sampleReports.map(seedDates), activeId: sampleReports[0].id };
   }
 
   try {
@@ -142,12 +161,20 @@ function loadState() {
     localStorage.removeItem(STORAGE_KEY);
   }
 
-  return { reports: sampleReports, activeId: sampleReports[0].id };
+  return { reports: sampleReports.map(seedDates), activeId: sampleReports[0].id };
+}
+
+function seedDates(report) {
+  const now = new Date().toISOString();
+  return { ...report, createdAt: report.createdAt || now, updatedAt: report.updatedAt || now };
 }
 
 function normalizeReport(report) {
+  const now = new Date().toISOString();
   return {
     ...report,
+    createdAt: report.createdAt || now,
+    updatedAt: report.updatedAt || now,
     apiSupport: report.apiSupport || "未知",
     evidence: Array.isArray(report.evidence) ? report.evidence : [],
     detailImages: Array.isArray(report.detailImages) ? report.detailImages : [],
@@ -163,92 +190,220 @@ function normalizeReport(report) {
   };
 }
 
-async function bootstrapFromApi() {
-  try {
-    const response = await fetch(`${API_BASE}/reports`);
-    if (!response.ok) return;
-    const payload = await response.json();
-    const reports = Array.isArray(payload.data) ? payload.data.map(normalizeReport) : [];
-    if (!reports.length) return;
-
-    const preferredId = state.activeId && reports.some((report) => report.id === state.activeId) ? state.activeId : reports[0].id;
-    state = { reports, activeId: preferredId };
-    activeId = preferredId;
-    backendReady = true;
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
-    renderAll();
-  } catch {
-    backendReady = false;
-  }
-}
-
 function getActiveReport() {
   return state.reports.find((report) => report.id === activeId) || state.reports[0];
 }
 
 function persist() {
+  const report = getActiveReport();
+  if (report) report.updatedAt = new Date().toISOString();
   state.activeId = activeId;
-  const durableState = {
-    ...state,
-    reports: state.reports.map((report) => ({
-      ...report,
-      detailImages: (report.detailImages || []).map(({ previewUrl, ...image }) => image),
-      videoUploads: (report.videoUploads || []).map(({ previewUrl, ...video }) => video)
-    }))
-  };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(durableState));
-  savedState.textContent = "已保存";
-  window.clearTimeout(persist.timer);
-  persist.timer = window.setTimeout(() => {
-    savedState.textContent = "自动保存";
-  }, 900);
-
-  if (backendReady) {
-    window.clearTimeout(syncTimer);
-    syncTimer = window.setTimeout(() => {
-      syncCurrentReportToApi().catch(() => {});
-    }, 250);
+  savedState.textContent = "保存中…";
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    setSavedStatus();
+  } catch {
+    // 本地配额（通常 5MB）被大图占满时触发
+    savedState.textContent = "保存失败";
+    showToast("本地存储空间已满，部分图片可能无法保存。请清理或缩小图片后重试。", "error");
   }
 }
 
-async function syncCurrentReportToApi() {
-  if (!backendReady) return;
-  const report = getActiveReport();
-  if (!report) return;
-  const response = await fetch(`${API_BASE}/reports/${encodeURIComponent(report.id)}`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(report)
-  });
-  if (response.status === 404) {
-    await fetch(`${API_BASE}/reports`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(report)
-    });
-  }
+function setSavedStatus() {
+  savedState.textContent = "已自动保存";
 }
 
 function renderCompetitors() {
   const keyword = competitorSearch.value.trim().toLowerCase();
-  const filtered = state.reports.filter((report) => {
-    const haystack = `${report.productName} ${report.category} ${report.audience}`.toLowerCase();
-    return haystack.includes(keyword);
+  const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+
+  const list = state.reports.filter((report) => {
+    if (uiFilter === "evidence" && (report.evidence || []).length === 0) return false;
+    if (uiFilter === "recent" && new Date(report.updatedAt).getTime() < weekAgo) return false;
+    if (uiCategory && (report.category || "未分类") !== uiCategory) return false;
+    if (keyword) {
+      const haystack = `${report.productName} ${report.category} ${report.audience}`.toLowerCase();
+      if (!haystack.includes(keyword)) return false;
+    }
+    return true;
   });
 
+  list.sort((a, b) => {
+    if (uiSort === "name") return (a.productName || "").localeCompare(b.productName || "", "zh");
+    if (uiSort === "updated") return new Date(b.updatedAt) - new Date(a.updatedAt);
+    if (uiSort === "category") return (a.category || "未分类").localeCompare(b.category || "未分类", "zh");
+    return 0;
+  });
+
+  // 当前选中的竞品若已被筛选条件过滤掉，自动切到可见列表的第一项，
+  // 并同步刷新分析页等表单，保证文本框内容与筛选状态一致。
+  if (list.length && !list.some((report) => report.id === activeId)) {
+    activeId = list[0].id;
+    syncActiveReportViews();
+  }
+
   competitorList.innerHTML = "";
-  filtered.forEach((report) => {
+  if (!list.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty-note";
+    empty.textContent =
+      keyword || uiCategory || uiFilter !== "all" ? "没有符合条件的竞品" : "还没有竞品，点击右上角 + 新增";
+    competitorList.appendChild(empty);
+    renderCategoryList();
+    return;
+  }
+
+  list.forEach((report) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `competitor-card${report.id === activeId ? " is-active" : ""}`;
-    button.innerHTML = `<strong>${escapeHtml(report.productName || "未命名竞品")}</strong><span>${escapeHtml(report.category || "未填写赛道")}</span>`;
-    button.addEventListener("click", () => {
+    button.innerHTML = `
+      <span class="cc-main">
+        <strong>${highlight(report.productName || "未命名竞品", keyword)}</strong>
+        <span>${highlight(report.category || "未填写赛道", keyword)}</span>
+      </span>
+      <span class="cc-del" title="删除竞品" aria-label="删除竞品">×</span>`;
+    button.addEventListener("click", (event) => {
+      if (event.target.closest(".cc-del")) return;
       activeId = report.id;
       renderAll();
       persist();
     });
+    button.querySelector(".cc-del").addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteCompetitor(report.id);
+    });
     competitorList.appendChild(button);
   });
+
+  renderCategoryList();
+}
+
+function renderCategoryList() {
+  const counts = new Map();
+  state.reports.forEach((report) => {
+    const cat = report.category || "未分类";
+    counts.set(cat, (counts.get(cat) || 0) + 1);
+  });
+  const entries = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+  const container = document.querySelector("#categoryList");
+  if (!container) return;
+  container.innerHTML = "";
+  container.appendChild(buildCategoryChip("全部", state.reports.length, uiCategory === null, null));
+  entries.forEach(([cat, count]) => container.appendChild(buildCategoryChip(cat, count, uiCategory === cat, cat)));
+  updateCategoryVisibility();
+}
+
+// 赛道模块仅在「按赛道排序」或「已选中某个赛道」时显示，不常驻
+function updateCategoryVisibility() {
+  if (!categoryModule) return;
+  categoryModule.hidden = !(uiSort === "category" || uiCategory !== null);
+}
+
+function buildCategoryChip(label, count, active, value) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = `cat-chip${active ? " is-active" : ""}`;
+  chip.innerHTML = `<span>${escapeHtml(label)}</span><span class="cat-count">${count}</span>`;
+  chip.addEventListener("click", () => {
+    uiCategory = active ? null : value;
+    renderCategoryList();
+    renderCompetitors();
+  });
+  return chip;
+}
+
+function bindSidebarModules() {
+  document.querySelectorAll("#filterSegment .seg").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      uiFilter = btn.dataset.filter;
+      setSegmentActive("#filterSegment", btn);
+      renderCompetitors();
+    });
+  });
+  document.querySelectorAll("#sortSegment .seg").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      uiSort = btn.dataset.sort;
+      setSegmentActive("#sortSegment", btn);
+      renderCompetitors();
+    });
+  });
+}
+
+function setSegmentActive(selector, activeBtn) {
+  document.querySelectorAll(`${selector} .seg`).forEach((b) => b.classList.remove("is-active"));
+  activeBtn.classList.add("is-active");
+}
+
+function renderStats() {
+  if (!statGrid) return;
+  const reports = state.reports;
+  const total = reports.length;
+  const withEvidence = reports.filter((report) => (report.evidence || []).length).length;
+  const withSummary = reports.filter((report) => String(report.summary || "").trim()).length;
+  const tiles = [
+    ["竞品", total],
+    ["含证据", withEvidence],
+    ["含总结", withSummary]
+  ];
+  statGrid.innerHTML = tiles
+    .map(([label, value]) => `<div class="stat-tile"><span class="stat-value">${value}</span><span class="stat-label">${label}</span></div>`)
+    .join("");
+}
+
+function bindSidebarExtras() {
+  document.querySelector("#sideAddBtn").addEventListener("click", addCompetitor);
+}
+
+function highlight(text, keyword) {
+  const safe = escapeHtml(text || "");
+  if (!keyword) return safe;
+  const idx = safe.toLowerCase().indexOf(keyword.toLowerCase());
+  if (idx === -1) return safe;
+  return `${safe.slice(0, idx)}<mark>${safe.slice(idx, idx + keyword.length)}</mark>${safe.slice(idx + keyword.length)}`;
+}
+
+function deleteCompetitor(id) {
+  const target = state.reports.find((report) => report.id === id);
+  if (!window.confirm(`确定删除「${target?.productName || "该竞品"}」？此操作不可撤销。`)) return;
+  state.reports = state.reports.filter((report) => report.id !== id);
+
+  // 删除最后一个竞品时，自动创建一个空白竞品作为入口，避免列表空掉
+  if (!state.reports.length) {
+    const now = new Date().toISOString();
+    state.reports.unshift({
+      id: createId(),
+      productName: "新竞品",
+      category: "",
+      website: "",
+      audience: "",
+      apiSupport: "未知",
+      details: "",
+      detailImages: [],
+      videoUploads: [],
+      interactionText: "",
+      flowStyle: "vertical",
+      nodeShape: "rounded",
+      pros: "",
+      cons: "",
+      prosFormat: "bullets",
+      consFormat: "bullets",
+      differencesFormat: "bullets",
+      inspirationsFormat: "bullets",
+      includeDifferences: false,
+      includeInspirations: false,
+      differences: "",
+      inspirations: "",
+      summary: "",
+      evidence: [],
+      createdAt: now,
+      updatedAt: now
+    });
+  }
+  activeId = state.reports[0].id;
+  renderAll();
+  persist();
+  showToast(state.reports.length <= 1 ? "已删除，已自动创建新竞品" : "已删除竞品", "info");
 }
 
 function bindInputs() {
@@ -262,6 +417,7 @@ function bindInputs() {
       }
       renderMeta();
       renderPreview();
+      renderAnalysisPreviews();
       if (fieldName === "interactionText") {
         renderFlow();
       }
@@ -275,6 +431,7 @@ function bindInputs() {
       const report = getActiveReport();
       report[`${fieldName}Format`] = select.value;
       renderPreview();
+      renderAnalysisPreviews();
       persist();
     });
   });
@@ -291,6 +448,7 @@ function bindInputs() {
       textarea.disabled = !toggle.checked;
       renderMeta();
       renderPreview();
+      renderAnalysisPreviews();
       persist();
     });
   });
@@ -312,23 +470,72 @@ function renderForm() {
   document.querySelector("#inspirations").disabled = !includeInspirations.checked;
   flowStyle.value = report.flowStyle || "vertical";
   nodeShape.value = report.nodeShape || "rounded";
+  resetEvidenceDraft();
+  renderAnalysisPreviews();
+}
+
+// 切换竞品时必须清空证据表单的草稿状态，否则 A 竞品的输入会串到 B 竞品上。
+function resetEvidenceDraft() {
+  document.querySelector("#evidenceTitle").value = "";
+  document.querySelector("#evidenceUrl").value = "";
+  document.querySelector("#evidenceNotes").value = "";
+  document.querySelector("#evidenceType").value = "官网信息";
+  document.querySelector("#evidenceMediaUpload").value = "";
+}
+
+function renderAnalysisPreviews() {
+  analysisFormatFields.forEach((fieldName) => {
+    const textarea = document.querySelector(`#${fieldName}`);
+    const select = document.querySelector(`#${fieldName}Format`);
+    const preview = document.querySelector(`#${fieldName}Preview`);
+    if (!textarea || !preview) return;
+    if (textarea.disabled) {
+      preview.textContent = "";
+      preview.hidden = true;
+      return;
+    }
+    const format = select ? select.value : "bullets";
+    const formatted = formatAnalysisText(textarea.value, format);
+    if (!formatted) {
+      preview.textContent = "";
+      preview.hidden = true;
+      return;
+    }
+    preview.textContent = formatted;
+    preview.hidden = false;
+  });
 }
 
 function renderMeta() {
   const report = getActiveReport();
-  const requiredFields = fields.filter((name) => !["differences", "inspirations"].includes(name));
+  const requiredFields = fields.filter((name) => !["differences", "inspirations", "summary"].includes(name));
   const filled = requiredFields.filter((name) => String(report[name] || "").trim()).length;
   const evidenceReady = (report.evidence || []).length > 0 ? 1 : 0;
   const completion = Math.round(((filled + evidenceReady) / (requiredFields.length + 1)) * 100);
-  completionBar.style.width = `${completion}%`;
+  completionFill.style.width = `${completion}%`;
   completionText.textContent = `${completion}%`;
-  document.title = `${report.productName || "竞品"} - 竞品体验分析报告工作台`;
+  document.title = `${report.productName || "竞品"} · 竞品体验分析报告`;
 }
 
 function parseSteps(text) {
+  if (!text) return [];
+  // 先按换行 / 箭头拆成大段，再对每一段检查是否包含多个编号步骤，进一步拆分
   return text
     .split(/\n|→|->|=>/g)
-    .map((line) => line.replace(/^\s*(第?[一二三四五六七八九十\d]+[步、.)．:：-]?|\d+\s*[.)．、-])\s*/u, "").trim())
+    .flatMap((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return [];
+      // 单行内有多个 "1. xxx 2. yyy" 或 "① ② ③" 这类编号时，进一步拆
+      // 核心：在"编号+符号"之前的位置切分（用 lookahead）
+      if (/[①-⑳]|\d+[\.)．、\]】]/.test(trimmed)) {
+        return trimmed
+          .split(/(?=[①-⑳])|(?=\d+[\.)．、\]】])/u)
+          .map((s) => s.replace(/^\s*[①-⑳]\s*|\s*\d+[\.)．、\]】]\s*/u, "").trim())
+          .filter(Boolean);
+      }
+      return [trimmed];
+    })
+    .map((step) => step.replace(/^\s*(第?[一二三四五六七八九十\d]+[步、.)．:：-]?|\d+\s*[.)．、-]|[①-⑳])\s*/u, "").trim())
     .filter(Boolean);
 }
 
@@ -339,7 +546,8 @@ function renderFlow() {
   flowCount.textContent = `${steps.length} 步`;
 
   if (!steps.length) {
-    flowCanvas.innerHTML = '<div class="empty-state">输入产品交互流程后生成流程图</div>';
+    flowCanvas.innerHTML =
+      '<div class="empty-state">在「详情」里填写交互步骤，或点击「自动拆分步骤」生成流程图</div>';
     return;
   }
 
@@ -348,12 +556,12 @@ function renderFlow() {
     style === "horizontal" ? buildHorizontalFlow(steps) : style === "grid" ? buildGridFlow(steps) : buildVerticalFlow(steps);
 }
 
-function buildSvg(width, height, content, label) {
+function buildSvg(width, height, content) {
   return `
-    <svg viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="${label}">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="产品交互流程图">
       <defs>
         <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-          <path d="M 0 0 L 10 5 L 0 10 z" fill="#8795a7"></path>
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="${C.arrow}"></path>
         </marker>
       </defs>
       ${content}
@@ -364,16 +572,17 @@ function buildSvg(width, height, content, label) {
 function buildFlowNode(step, index, x, y, width, height) {
   const escaped = escapeHtml(step);
   const shape = getActiveReport().nodeShape || "rounded";
+  const stroke = index === 0 ? C.accent : C.nodeStroke;
   const body =
     shape === "diamond"
-      ? `<polygon points="${x + width / 2},${y} ${x + width},${y + height / 2} ${x + width / 2},${y + height} ${x},${y + height / 2}" fill="#ffffff" stroke="${index === 0 ? "#147d7f" : "#d6dee8"}" stroke-width="${index === 0 ? 2 : 1.4}" />`
-      : `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${getNodeRadius(shape, height)}" fill="#ffffff" stroke="${index === 0 ? "#147d7f" : "#d6dee8"}" stroke-width="${index === 0 ? 2 : 1.4}" />`;
+      ? `<polygon points="${x + width / 2},${y} ${x + width},${y + height / 2} ${x + width / 2},${y + height} ${x},${y + height / 2}" fill="#ffffff" stroke="${stroke}" stroke-width="${index === 0 ? 2 : 1.4}" />`
+      : `<rect x="${x}" y="${y}" width="${width}" height="${height}" rx="${getNodeRadius(shape, height)}" fill="#ffffff" stroke="${stroke}" stroke-width="${index === 0 ? 2 : 1.4}" />`;
 
   return `
     <g>
       ${body}
-      <circle cx="${x + 30}" cy="${y + height / 2}" r="15" fill="${index === 0 ? "#147d7f" : "#e1f3f2"}" />
-      <text x="${x + 30}" y="${y + height / 2 + 5}" text-anchor="middle" font-size="13" font-weight="800" fill="${index === 0 ? "#ffffff" : "#0f6769"}">${index + 1}</text>
+      <circle cx="${x + 30}" cy="${y + height / 2}" r="15" fill="${index === 0 ? C.accent : C.accentSoft}" />
+      <text x="${x + 30}" y="${y + height / 2 + 5}" text-anchor="middle" font-family='-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' font-size="13" font-weight="800" fill="${index === 0 ? "#ffffff" : C.accent}">${index + 1}</text>
       ${wrapSvgText(escaped, x + 58, y + height / 2 - 5, width - 74)}
     </g>
   `;
@@ -398,11 +607,11 @@ function buildVerticalFlow(steps) {
     .slice(0, -1)
     .map((_, index) => {
       const startY = top + index * (nodeHeight + gap) + nodeHeight;
-      return `<path d="M ${width / 2} ${startY + 6} L ${width / 2} ${startY + gap - 8}" stroke="#8795a7" stroke-width="2" marker-end="url(#arrow)" />`;
+      return `<path d="M ${width / 2} ${startY + 6} L ${width / 2} ${startY + gap - 8}" stroke="${C.arrow}" stroke-width="2" marker-end="url(#arrow)" />`;
     })
     .join("");
 
-  return buildSvg(width, height, `${arrows}${nodes}`, "纵向产品交互流程图");
+  return buildSvg(width, height, `${arrows}${nodes}`);
 }
 
 function buildHorizontalFlow(steps) {
@@ -418,11 +627,11 @@ function buildHorizontalFlow(steps) {
     .slice(0, -1)
     .map((_, index) => {
       const x = left + index * (nodeWidth + gap) + nodeWidth + 8;
-      return `<path d="M ${x} ${top + nodeHeight / 2} L ${x + gap - 16} ${top + nodeHeight / 2}" stroke="#8795a7" stroke-width="2" marker-end="url(#arrow)" />`;
+      return `<path d="M ${x} ${top + nodeHeight / 2} L ${x + gap - 16} ${top + nodeHeight / 2}" stroke="${C.arrow}" stroke-width="2" marker-end="url(#arrow)" />`;
     })
     .join("");
 
-  return buildSvg(width, height, `${arrows}${nodes}`, "横向产品交互流程图");
+  return buildSvg(width, height, `${arrows}${nodes}`);
 }
 
 function buildGridFlow(steps) {
@@ -444,31 +653,37 @@ function buildGridFlow(steps) {
     })
     .join("");
 
-  return buildSvg(width, height, nodes, "矩阵式产品交互流程图");
+  return buildSvg(width, height, nodes);
 }
 
-function aiGenerateFlow() {
+function autoSplitSteps() {
   const report = getActiveReport();
   const existingSteps = parseSteps(report.interactionText || "");
-  const sourceText = [report.interactionText, report.details, report.pros].filter(Boolean).join("。");
-  let steps = existingSteps;
 
-  if (!steps.length && sourceText.trim()) {
-    steps = sourceText
-      .split(/[。；;，,]/)
-      .map((item) => item.trim())
-      .filter((item) => item.length >= 4)
-      .slice(0, 7);
+  // 用户已经写了步骤，不要覆盖
+  if (existingSteps.length) {
+    showToast("已有步骤，无需自动拆分", "info");
+    return;
   }
 
+  const sourceText = [report.details, report.pros, report.audience]
+    .filter((s) => s && s.trim())
+    .join("。");
+
+  if (!sourceText.trim()) {
+    showToast("请先在「详情」里填写一些内容，或手动输入步骤", "warn");
+    return;
+  }
+
+  const steps = sourceText
+    .split(/[。；;，,]/)
+    .map((item) => item.trim())
+    .filter((item) => item.length >= 4)
+    .slice(0, 7);
+
   if (!steps.length) {
-    steps = [
-      `进入${report.productName || "竞品"}首页或工作台`,
-      "定位核心功能入口",
-      "完成关键配置或输入",
-      "查看系统反馈和结果",
-      "保存、导出或分享结果"
-    ];
+    showToast("现有文本太短，无法自动拆分步骤，建议手动编写", "warn");
+    return;
   }
 
   report.flowStyle = "vertical";
@@ -478,6 +693,7 @@ function aiGenerateFlow() {
   renderFlow();
   renderPreview();
   persist();
+  showToast("已自动拆分出步骤", "info");
 }
 
 function renderEvidence() {
@@ -487,7 +703,7 @@ function renderEvidence() {
   evidenceList.innerHTML = "";
 
   if (!evidence.length) {
-    evidenceList.innerHTML = '<div class="empty-state compact">还没有证据记录</div>';
+    evidenceList.innerHTML = '<div class="empty-state compact">还没有证据，填写上方表单后点击「添加证据」</div>';
     return;
   }
 
@@ -501,19 +717,13 @@ function renderEvidence() {
         <span class="evidence-type">${escapeHtml(item.type)}</span>
         <button class="icon-button evidence-delete" type="button" title="删除证据" aria-label="删除证据">×</button>
       </div>
-      ${
-        linkedMedia
-          ? renderMediaPreview(linkedMedia, "evidence-media")
-          : ""
-      }
+      ${linkedMedia ? renderMediaPreview(linkedMedia, "evidence-media") : ""}
       <h3>${escapeHtml(item.title || "未命名证据")}</h3>
       ${item.url ? `<p class="evidence-link">${escapeHtml(item.url)}</p>` : ""}
       <p>${escapeHtml(item.notes || "未填写观察记录")}</p>
     `;
     card.querySelector(".evidence-delete").addEventListener("click", () => {
       if (mediaId) {
-        const media = (report.videoUploads || []).find((candidate) => candidate.id === mediaId);
-        if (media?.previewUrl) URL.revokeObjectURL(media.previewUrl);
         report.videoUploads = (report.videoUploads || []).filter((candidate) => candidate.id !== mediaId);
       }
       report.evidence = evidence.filter((candidate) => candidate.id !== item.id);
@@ -550,6 +760,7 @@ function addEvidence() {
   document.querySelector("#evidenceTitle").value = "";
   document.querySelector("#evidenceUrl").value = "";
   document.querySelector("#evidenceNotes").value = "";
+  document.querySelector("#evidenceType").value = "官网信息";
   renderEvidence();
   renderMeta();
   renderPreview();
@@ -561,15 +772,16 @@ function isImageMedia(media) {
 }
 
 function renderMediaPreview(media, className = "") {
-  const source = media.previewUrl || media.url;
+  const source = media.dataUrl || media.url;
   const classes = className ? ` class="${className}"` : "";
   if (!source) {
-    return `<div${classes}>本地${isImageMedia(media) ? "图片" : "视频"}</div>`;
+    const label = isImageMedia(media) ? "本地图片（重开后需重新上传）" : "本地视频（重开后需重新上传）";
+    return `<div${classes}>${label}</div>`;
   }
   if (isImageMedia(media)) {
-    return `<img${classes} src="${resolveAssetUrl(source)}" alt="${escapeHtml(media.name || "上传图片")}" />`;
+    return `<img${classes} src="${source}" alt="${escapeHtml(media.name || "上传图片")}" />`;
   }
-  return `<video${classes} src="${resolveAssetUrl(source)}" controls muted></video>`;
+  return `<video${classes} src="${source}" controls muted></video>`;
 }
 
 function renderDetailImages() {
@@ -578,7 +790,7 @@ function renderDetailImages() {
   detailImageList.innerHTML = "";
 
   if (!images.length) {
-    detailImageList.innerHTML = '<div class="empty-note">还没有上传详情图片</div>';
+    detailImageList.innerHTML = '<div class="empty-note">还没有详情图片，点击「选择图片」上传</div>';
     return;
   }
 
@@ -594,7 +806,6 @@ function renderDetailImages() {
       <button class="icon-button media-delete" type="button" title="删除图片" aria-label="删除图片">×</button>
     `;
     item.querySelector(".media-delete").addEventListener("click", () => {
-      if (image.previewUrl) URL.revokeObjectURL(image.previewUrl);
       report.detailImages = images.filter((candidate) => candidate.id !== image.id);
       renderDetailImages();
       renderPreview();
@@ -604,158 +815,158 @@ function renderDetailImages() {
   });
 }
 
-function handleDetailImageUpload(files) {
+async function handleDetailImageUpload(files) {
   const report = getActiveReport();
   report.detailImages = report.detailImages || [];
   const queue = Array.from(files);
 
-  if (backendReady) {
-    const formData = new FormData();
-    queue.forEach((file) => formData.append("files", file));
-    fetch(`${API_BASE}/reports/${encodeURIComponent(report.id)}/uploads`, {
-      method: "POST",
-      body: formData
-    })
-      .then((response) => response.json())
-      .then((payload) => {
-        const uploaded = Array.isArray(payload.data) ? payload.data.map((item) => ({ ...item })) : [];
-        uploaded.reverse().forEach((item) => {
-          report.detailImages.unshift(item);
-        });
-        detailImageUpload.value = "";
-        renderDetailImages();
-        renderPreview();
-        persist();
-      })
-      .catch(() => {
-        queue.forEach((file) => {
-          report.detailImages.unshift({
-            id: createId(),
-            name: file.name,
-            size: file.size,
-            type: file.type || "image",
-            addedAt: new Date().toISOString(),
-            previewUrl: URL.createObjectURL(file)
-          });
-        });
-        detailImageUpload.value = "";
-        renderDetailImages();
-        renderPreview();
-        persist();
-      });
-    return;
+  for (const file of queue) {
+    const media = await fileToStoredMedia(file);
+    report.detailImages.unshift(media);
   }
-
-  queue.forEach((file) => {
-    report.detailImages.unshift({
-      id: createId(),
-      name: file.name,
-      size: file.size,
-      type: file.type || "image",
-      addedAt: new Date().toISOString(),
-      previewUrl: URL.createObjectURL(file)
-    });
-  });
   detailImageUpload.value = "";
   renderDetailImages();
   renderPreview();
   persist();
 }
 
-function handleEvidenceMediaUpload(files) {
+async function handleEvidenceMediaUpload(files) {
   const report = getActiveReport();
   report.videoUploads = report.videoUploads || [];
   report.evidence = report.evidence || [];
   const queue = Array.from(files);
 
-  const addLocalMedia = () => {
-    queue.forEach((file) => {
-      const media = {
-        id: createId(),
-        name: file.name,
-        size: file.size,
-        type: file.type || "application/octet-stream",
-        addedAt: new Date().toISOString(),
-        previewUrl: URL.createObjectURL(file)
-      };
-      report.videoUploads.unshift(media);
-      report.evidence.unshift({
-        id: createId(),
-        type: "图片 / 视频素材",
-        title: file.name,
-        url: file.name,
-        notes: `上传${isImageMedia(media) ? "图片" : "视频"}证据，文件大小：${formatFileSize(file.size)}。`,
-        mediaId: media.id
-      });
+  for (const file of queue) {
+    const media = await fileToStoredMedia(file);
+    report.videoUploads.unshift(media);
+    const isImage = isImageMedia(media);
+    report.evidence.unshift({
+      id: createId(),
+      type: isImage ? "图片素材" : "视频素材",
+      title: file.name,
+      url: file.name,
+      notes: isImage
+        ? `上传图片证据，文件大小：${formatFileSize(file.size)}。`
+        : `上传视频证据，文件大小：${formatFileSize(file.size)}。${media.dataUrl ? "" : "（视频较大，重开后需重新上传）"}`,
+      mediaId: media.id
     });
-    evidenceMediaUpload.value = "";
-    renderEvidence();
-    renderMeta();
-    renderPreview();
-    persist();
-  };
-
-  if (backendReady) {
-    const formData = new FormData();
-    queue.forEach((file) => formData.append("files", file));
-    fetch(`${API_BASE}/reports/${encodeURIComponent(report.id)}/uploads`, {
-      method: "POST",
-      body: formData
-    })
-      .then((response) => response.json())
-      .then((payload) => {
-        const uploaded = Array.isArray(payload.data) ? payload.data.map((item) => ({ ...item })) : [];
-        uploaded.reverse().forEach((media) => {
-          report.videoUploads.unshift(media);
-          report.evidence.unshift({
-            id: createId(),
-            type: "图片 / 视频素材",
-            title: media.name,
-            url: media.url || media.fileName || media.name,
-            notes: `上传${isImageMedia(media) ? "图片" : "视频"}证据，文件大小：${formatFileSize(media.size)}。`,
-            mediaId: media.id
-          });
-        });
-        evidenceMediaUpload.value = "";
-        renderEvidence();
-        renderMeta();
-        renderPreview();
-        persist();
-      })
-      .catch(addLocalMedia);
-    return;
   }
+  evidenceMediaUpload.value = "";
+  renderEvidence();
+  renderMeta();
+  renderPreview();
+  persist();
+}
 
-  addLocalMedia();
+async function fileToStoredMedia(file) {
+  const media = {
+    id: createId(),
+    name: file.name,
+    size: file.size,
+    type: file.type || "application/octet-stream",
+    addedAt: new Date().toISOString()
+  };
+  try {
+    if (isImageMedia(media)) {
+      media.dataUrl = await downscaleImage(file, 1280, 0.82);
+    } else if (media.type.startsWith("video/")) {
+      if (file.size <= 3 * 1024 * 1024) {
+        media.dataUrl = await fileToDataUrl(file);
+      } else {
+        media.needsReupload = true;
+      }
+    }
+  } catch {
+    media.needsReupload = true;
+  }
+  return media;
+}
+
+function downscaleImage(file, maxDim, quality) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const finish = (dataUrl) => {
+      URL.revokeObjectURL(url);
+      resolve(dataUrl);
+    };
+    if (typeof createImageBitmap !== "function") {
+      fileToDataUrl(file).then(finish);
+      return;
+    }
+    createImageBitmap(file)
+      .then((bmp) => {
+        const scale = Math.min(1, maxDim / Math.max(bmp.width, bmp.height));
+        const w = Math.max(1, Math.round(bmp.width * scale));
+        const h = Math.max(1, Math.round(bmp.height * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(bmp, 0, 0, w, h);
+        if (typeof bmp.close === "function") bmp.close();
+        finish(canvas.toDataURL("image/jpeg", quality));
+      })
+      .catch(() => fileToDataUrl(file).then(finish));
+  });
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = () => resolve("");
+    reader.readAsDataURL(file);
+  });
 }
 
 function wrapSvgText(text, x, y, maxWidth) {
-  const charsPerLine = Math.max(8, Math.floor(maxWidth / 14));
-  const chunks = [];
-  let remaining = text;
-
-  while (remaining.length > charsPerLine && chunks.length < 2) {
-    chunks.push(remaining.slice(0, charsPerLine));
-    remaining = remaining.slice(charsPerLine);
+  measureCtx.font = '700 14px "PingFang SC", system-ui, sans-serif';
+  const chars = Array.from(text);
+  const lines = [];
+  let cur = "";
+  for (const ch of chars) {
+    if (measureCtx.measureText(cur + ch).width > maxWidth && cur) {
+      lines.push(cur);
+      cur = ch;
+    } else {
+      cur += ch;
+    }
   }
-  if (remaining) {
-    chunks.push(remaining.length > charsPerLine ? `${remaining.slice(0, charsPerLine - 1)}...` : remaining);
+  if (cur) lines.push(cur);
+
+  const maxLines = 3;
+  let shown = lines;
+  if (lines.length > maxLines) {
+    shown = lines.slice(0, maxLines);
+    let last = shown[maxLines - 1];
+    while (last.length && measureCtx.measureText(last + "…").width > maxWidth) {
+      last = last.slice(0, -1);
+    }
+    shown[maxLines - 1] = last + "…";
   }
 
-  const firstY = y - (chunks.length - 1) * 9;
-  return chunks
+  const firstY = y - (shown.length - 1) * 9;
+  return shown
     .map(
-      (chunk, index) =>
-        `<text x="${x}" y="${firstY + index * 20}" font-size="14" font-weight="700" fill="#263447">${chunk}</text>`
+      (line, index) =>
+        `<text x="${x}" y="${firstY + index * 20}" font-family='-apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif' font-size="14" font-weight="700" fill="${C.text}">${escapeHtml(line)}</text>`
     )
     .join("");
 }
 
 function renderPreview() {
   const report = getActiveReport();
-  const isSummaryPanelActive = document.querySelector("#summaryPanel")?.classList.contains("is-active");
-  document.querySelector("#previewDate").textContent = new Date().toLocaleDateString("zh-CN");
-  markdownPreview.innerHTML = markdownToHtml(buildMarkdown(report, { includeSummary: !isSummaryPanelActive }));
+  const updated = report.updatedAt ? new Date(report.updatedAt) : new Date();
+  document.querySelector("#previewDate").textContent = formatDate(updated);
+  // 总结始终融入报告预览，保证预览是一份完整报告；编辑仍在总结页的文本框中完成
+  markdownPreview.innerHTML = markdownToHtml(buildMarkdown(report, { includeSummary: true }));
+}
+
+function formatDate(date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
 }
 
 function getDetailImagesText(report) {
@@ -764,9 +975,15 @@ function getDetailImagesText(report) {
 }
 
 function formatAnalysisText(text, format = "bullets") {
-  const items = String(text || "")
+  const raw = String(text || "").replace(/\r\n?/g, "\n");
+  const items = raw
     .split(/\n|；|;/)
-    .map((item) => item.replace(/^\s*(?:[-•]|\d+[.、])\s*/, "").trim())
+    .map((item) =>
+      item
+        // 兼容粘贴进来的各种编号 / 项目符号：1. 1、1）(1) （1） 一、 1． - • · * ◦ 等
+        .replace(/^\s*(?:[-•·*◦]|\(?\d+[.、)）]?|（\d+）|第[一二三四五六七八九十\d]+[步.、]?)\s*/u, "")
+        .trim()
+    )
     .filter(Boolean);
 
   if (!items.length) return "";
@@ -846,11 +1063,11 @@ function buildHtmlReport(report) {
   <meta charset="utf-8">
   <title>${escapeHtml(report.productName || "竞品")} 体验分析报告</title>
   <style>
-    body { font-family: "Microsoft YaHei", Arial, sans-serif; color: #18212f; line-height: 1.7; padding: 32px; }
+    body { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; color: #1d1d1f; line-height: 1.7; padding: 32px; }
     h1 { font-size: 26px; margin: 0 0 18px; }
-    h2 { font-size: 18px; margin: 24px 0 8px; border-bottom: 1px solid #dce3ec; padding-bottom: 6px; }
+    h2 { font-size: 18px; margin: 24px 0 8px; border-bottom: 1px solid #d2d2d7; padding-bottom: 6px; }
     p { margin: 0 0 10px; }
-    .meta { color: #657386; margin-bottom: 20px; }
+    .meta { color: #6e6e73; margin-bottom: 20px; }
   </style>
 </head>
 <body>
@@ -889,11 +1106,11 @@ function buildCombinedHtmlReport(reports) {
   <meta charset="utf-8">
   <title>批量竞品体验分析报告</title>
   <style>
-    body { font-family: "Microsoft YaHei", Arial, sans-serif; color: #18212f; line-height: 1.7; padding: 32px; }
+    body { font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; color: #1d1d1f; line-height: 1.7; padding: 32px; }
     h1 { font-size: 26px; margin: 0 0 18px; }
-    h2 { font-size: 18px; margin: 24px 0 8px; border-bottom: 1px solid #dce3ec; padding-bottom: 6px; }
+    h2 { font-size: 18px; margin: 24px 0 8px; border-bottom: 1px solid #d2d2d7; padding-bottom: 6px; }
     p { margin: 0 0 10px; }
-    .meta { color: #657386; margin-bottom: 20px; }
+    .meta { color: #6e6e73; margin-bottom: 20px; }
     .page-break { break-before: page; page-break-before: always; margin-top: 40px; }
   </style>
 </head>
@@ -912,14 +1129,63 @@ function getExportFilenameBase() {
 }
 
 function markdownToHtml(markdown) {
-  return markdown
-    .split("\n")
-    .map((line) => {
-      if (line.startsWith("# ")) return `<h2>${escapeHtml(line.replace("# ", ""))}</h2>`;
-      if (line.startsWith("## ")) return `<h2>${escapeHtml(line.replace("## ", ""))}</h2>`;
-      return `<p>${escapeHtml(line)}</p>`;
-    })
-    .join("");
+  const lines = markdown.split("\n");
+  let html = "";
+  let i = 0;
+  const inline = (text) =>
+    escapeHtml(text)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  while (i < lines.length) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i++;
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      html += `<h2>${inline(line.slice(3))}</h2>`;
+      i++;
+      continue;
+    }
+    if (line.startsWith("# ")) {
+      html += `<h1>${inline(line.slice(2))}</h1>`;
+      i++;
+      continue;
+    }
+    if (/^[-*]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*]\s+/.test(lines[i])) {
+        items.push(`<li>${inline(lines[i].replace(/^[-*]\s+/, ""))}</li>`);
+        i++;
+      }
+      html += `<ul>${items.join("")}</ul>`;
+      continue;
+    }
+    if (/^\d+\.\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+\.\s+/.test(lines[i])) {
+        items.push(`<li>${inline(lines[i].replace(/^\d+\.\s+/, ""))}</li>`);
+        i++;
+      }
+      html += `<ol>${items.join("")}</ol>`;
+      continue;
+    }
+    const para = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !lines[i].startsWith("# ") &&
+      !lines[i].startsWith("## ") &&
+      !/^[-*]\s+/.test(lines[i]) &&
+      !/^\d+\.\s+/.test(lines[i])
+    ) {
+      para.push(escapeHtml(lines[i]));
+      i++;
+    }
+    html += `<p>${para.join("<br>")}</p>`;
+  }
+  return html;
 }
 
 function renderAll() {
@@ -929,13 +1195,25 @@ function renderAll() {
   renderFlow();
   renderDetailImages();
   renderEvidence();
+  renderStats();
+  renderPreview();
+}
+
+// 切换当前竞品后，统一刷新依赖该竞品的所有视图（表单、分析文本框、流程图、证据、预览）
+function syncActiveReportViews() {
+  renderForm();
+  renderMeta();
+  renderFlow();
+  renderDetailImages();
+  renderEvidence();
   renderPreview();
 }
 
 function addCompetitor() {
+  const now = new Date().toISOString();
   const report = {
     id: createId(),
-    productName: `新竞品 ${state.reports.length + 1}`,
+    productName: "未命名竞品",
     category: "",
     website: "",
     audience: "",
@@ -957,7 +1235,9 @@ function addCompetitor() {
     differences: "",
     inspirations: "",
     summary: "",
-    evidence: []
+    evidence: [],
+    createdAt: now,
+    updatedAt: now
   };
   state.reports.unshift(report);
   activeId = report.id;
@@ -969,35 +1249,68 @@ function addCompetitor() {
 
 function duplicateReport() {
   const current = getActiveReport();
+  const now = new Date().toISOString();
+  const cloneData = typeof structuredClone === "function"
+    ? structuredClone(current)
+    : JSON.parse(JSON.stringify(current));
+
+  // 重新生成图片 / 视频素材 id，避免副本和原报告共享同一组 id。
+  // 关键：素材 id 变化后，必须同步更新 evidence[].mediaId 的引用。
+  const detailImageMap = new Map();
+  const videoMap = new Map();
+  const clonedDetailImages = (current.detailImages || []).map((image) => {
+    const newId = createId();
+    detailImageMap.set(image.id, newId);
+    return { ...image, id: newId };
+  });
+  const clonedVideoUploads = (current.videoUploads || []).map((video) => {
+    const newId = createId();
+    videoMap.set(video.id, newId);
+    return { ...video, id: newId };
+  });
+  const clonedEvidence = (cloneData.evidence || []).map((item) => ({
+    ...item,
+    id: createId(),
+    mediaId: item.mediaId && videoMap.has(item.mediaId) ? videoMap.get(item.mediaId) : item.mediaId
+  }));
+
   const clone = {
-    ...structuredClone(current),
+    ...cloneData,
     id: createId(),
     productName: `${current.productName || "竞品"} 副本`,
-    detailImages: (current.detailImages || []).map(({ previewUrl, ...image }) => ({ ...image, id: createId() })),
-    videoUploads: (current.videoUploads || []).map(({ previewUrl, ...video }) => ({ ...video, id: createId() }))
+    detailImages: clonedDetailImages,
+    videoUploads: clonedVideoUploads,
+    evidence: clonedEvidence,
+    createdAt: now,
+    updatedAt: now
   };
   state.reports.unshift(clone);
   activeId = clone.id;
   renderAll();
   persist();
+  showToast("已创建副本", "info");
 }
 
 function downloadSvg() {
   const svg = flowCanvas.querySelector("svg");
-  if (!svg) return;
+  if (!svg) {
+    showToast("请先生成流程图再下载", "warn");
+    return;
+  }
 
-  const blob = new Blob([svg.outerHTML], { type: "image/svg+xml;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = `${getActiveReport().productName || "flow"}-流程图.svg`;
-  link.click();
-  URL.revokeObjectURL(url);
+  const source = svg.outerHTML.includes('xmlns="http://www.w3.org/2000/svg"')
+    ? svg.outerHTML
+    : svg.outerHTML.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
+  const blob = new Blob([source], { type: "image/svg+xml;charset=utf-8" });
+  downloadBlob(blob, `${getActiveReport().productName || "flow"}-流程图.svg`);
 }
 
 function downloadPng() {
   const svg = flowCanvas.querySelector("svg");
-  if (!svg) return;
+  if (!svg) {
+    showToast("请先生成流程图再下载", "warn");
+    return;
+  }
 
   const xml = new XMLSerializer().serializeToString(svg);
   const svgBlob = new Blob([xml], { type: "image/svg+xml;charset=utf-8" });
@@ -1006,8 +1319,8 @@ function downloadPng() {
 
   image.onload = () => {
     const canvas = document.createElement("canvas");
-    canvas.width = svg.viewBox.baseVal.width || svg.width.baseVal.value;
-    canvas.height = svg.viewBox.baseVal.height || svg.height.baseVal.value;
+    canvas.width = Number(svg.getAttribute("width")) || svg.viewBox.baseVal.width || 760;
+    canvas.height = Number(svg.getAttribute("height")) || svg.viewBox.baseVal.height || 400;
     const context = canvas.getContext("2d");
     context.fillStyle = "#ffffff";
     context.fillRect(0, 0, canvas.width, canvas.height);
@@ -1015,7 +1328,12 @@ function downloadPng() {
     URL.revokeObjectURL(url);
     canvas.toBlob((blob) => {
       if (blob) downloadBlob(blob, `${getActiveReport().productName || "flow"}-流程图.png`);
+      else showToast("PNG 生成失败，请重试", "error");
     }, "image/png");
+  };
+  image.onerror = () => {
+    URL.revokeObjectURL(url);
+    showToast("流程图渲染失败，无法导出 PNG", "error");
   };
   image.src = url;
 }
@@ -1025,21 +1343,25 @@ function downloadBlob(blob, filename) {
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+  link.rel = "noopener";
+  // 某些浏览器对 display:none 的锚点点击不触发下载，放到视口外而非隐藏
+  link.style.position = "fixed";
+  link.style.left = "-9999px";
+  link.style.top = "0";
+  document.body.appendChild(link);
+  // 优先用真实点击事件，个别环境回退到 dispatchEvent
+  if (typeof link.click === "function") link.click();
+  else link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+  // 延迟清理，确保浏览器已开始下载再回收资源
+  window.setTimeout(() => {
+    if (link.parentNode) link.parentNode.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, 1500);
 }
 
 function formatFileSize(size = 0) {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function resolveAssetUrl(url) {
-  if (!url || url.startsWith("blob:") || /^https?:\/\//.test(url)) return url;
-  if (location.protocol === "file:" && url.startsWith("/")) {
-    return `${API_BASE.replace(/\/api$/, "")}${url}`;
-  }
-  return url;
 }
 
 function updateExportText() {
@@ -1061,13 +1383,41 @@ function downloadWord() {
 }
 
 function printPdf() {
-  const printWindow = window.open("", "_blank");
-  if (!printWindow) return;
   const reports = getExportReports();
-  printWindow.document.write(reports.length > 1 ? buildCombinedHtmlReport(reports) : buildHtmlReport(reports[0]));
-  printWindow.document.close();
-  printWindow.focus();
-  window.setTimeout(() => printWindow.print(), 250);
+  const html = reports.length > 1 ? buildCombinedHtmlReport(reports) : buildHtmlReport(reports[0]);
+
+  // 用隐藏 iframe 打印，避免 window.open 被拦截导致的 about:blank 报错
+  const iframe = document.createElement("iframe");
+  iframe.setAttribute("aria-hidden", "true");
+  iframe.style.position = "fixed";
+  iframe.style.right = "0";
+  iframe.style.bottom = "0";
+  iframe.style.width = "0";
+  iframe.style.height = "0";
+  iframe.style.border = "0";
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  const removeIframe = () => window.setTimeout(() => iframe.remove(), 800);
+  iframe.contentWindow.focus();
+  if (typeof iframe.contentWindow.print === "function") {
+    iframe.contentWindow.onafterprint = removeIframe;
+    iframe.contentWindow.print();
+  } else {
+    showToast("当前环境不支持打印 / PDF 导出", "warn");
+    removeIframe();
+  }
+}
+
+function openExportDialog(scope = "current", format = "plain") {
+  exportScope.value = scope;
+  exportFormat.value = format;
+  updateExportText();
+  exportDialog.showModal();
 }
 
 function escapeHtml(value) {
@@ -1091,6 +1441,39 @@ function activateTab(tabName) {
   renderPreview();
 }
 
+function showToast(message, kind = "info") {
+  let box = document.getElementById("toastBox");
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "toastBox";
+    box.className = "toast-box";
+    document.body.appendChild(box);
+  }
+  const el = document.createElement("div");
+  el.className = `toast toast-${kind}`;
+  el.textContent = message;
+  box.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("is-show"));
+  window.setTimeout(() => {
+    el.classList.remove("is-show");
+    window.setTimeout(() => el.remove(), 300);
+  }, 2600);
+}
+
+function initTheme() {
+  const saved = localStorage.getItem(THEME_KEY);
+  const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const theme = saved || (prefersDark ? "dark" : "light");
+  document.documentElement.setAttribute("data-theme", theme);
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute("data-theme");
+  const next = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  localStorage.setItem(THEME_KEY, next);
+}
+
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     activateTab(tab.dataset.tab);
@@ -1099,7 +1482,7 @@ document.querySelectorAll(".tab").forEach((tab) => {
 
 document.querySelector("#addCompetitorBtn").addEventListener("click", addCompetitor);
 document.querySelector("#duplicateBtn").addEventListener("click", duplicateReport);
-document.querySelector("#aiGenerateFlowBtn").addEventListener("click", aiGenerateFlow);
+document.querySelector("#autoFlowBtn").addEventListener("click", autoSplitSteps);
 document.querySelector("#generateFlowBtn").addEventListener("click", renderFlow);
 document.querySelector("#downloadSvgBtn").addEventListener("click", downloadSvg);
 document.querySelector("#downloadPngBtn").addEventListener("click", downloadPng);
@@ -1123,24 +1506,28 @@ evidenceMediaUpload.addEventListener("change", (event) => handleEvidenceMediaUpl
 competitorSearch.addEventListener("input", renderCompetitors);
 exportFormat.addEventListener("change", updateExportText);
 exportScope.addEventListener("change", updateExportText);
-document.querySelector("#batchExportBtn").addEventListener("click", () => {
-  exportScope.value = "all";
-  exportFormat.value = "plain";
-  updateExportText();
-  exportDialog.showModal();
-});
-document.querySelector("#exportBtn").addEventListener("click", () => {
-  exportScope.value = "current";
-  exportFormat.value = "plain";
-  updateExportText();
-  exportDialog.showModal();
-});
+document.querySelector("#batchExportBtn").addEventListener("click", () => openExportDialog("all", "plain"));
+document.querySelector("#exportBtn").addEventListener("click", () => openExportDialog("current", "plain"));
+document.querySelector("#themeToggle").addEventListener("click", toggleTheme);
 document.querySelector("#copyExportBtn").addEventListener("click", async () => {
+  // Word(HTML) 格式的 exportText 是源码，复制给用户没意义，降级为纯文本
+  let toCopy = exportText.value;
+  if (exportFormat.value === "word") {
+    const reports = getExportReports();
+    toCopy = reports.length > 1 ? buildCombinedPlainText(reports) : buildPlainText(reports[0]);
+  }
   if (navigator.clipboard?.writeText) {
-    await navigator.clipboard.writeText(exportText.value);
+    await navigator.clipboard.writeText(toCopy);
   } else {
-    exportText.select();
+    // 旧浏览器回退：临时用一个隐藏 textarea 装纯文本再 execCommand
+    const ta = document.createElement("textarea");
+    ta.value = toCopy;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
     document.execCommand("copy");
+    document.body.removeChild(ta);
   }
   document.querySelector("#copyExportBtn").textContent = "已复制";
   window.setTimeout(() => {
@@ -1148,7 +1535,11 @@ document.querySelector("#copyExportBtn").addEventListener("click", async () => {
   }, 1100);
 });
 
+initTheme();
 bindInputs();
+bindSidebarModules();
+bindSidebarExtras();
+
 renderAll();
 activateTab(new URLSearchParams(window.location.search).get("tab") || "overview");
-bootstrapFromApi();
+setSavedStatus();
